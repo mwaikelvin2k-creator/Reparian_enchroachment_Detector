@@ -8,7 +8,6 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	"""
 	Loads waterways shapefile in data folder, clips it down to Kasarani, projects it into meters(EPSG:32737), draws a legal buffer zone, and exports it back as clean global coordinates (EPSG:4326).
 	"""
-	
 	print("Step 1: Initializing production spatial pipeline...")
 
 	# fallback verification to check if file exists
@@ -46,5 +45,26 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	# EPSG: 32737- official mathematical coordinate system for Nairobi
 	print(" Converting coordinates from Degrees to metric system(EPSG:32737)...")
 	rivers_metric = cleaned_rivers.to_crs(epsg=32737)
+
+
+	# 4. DRAW 60M BOUNDARY
+	print(f"Buffer Zone: Drawing the legal mandatory{buffer_distance} - meter protection zone...")
+	buffer_metric = rivers_metric.buffer(buffer_distance)
+
+
+	# 5. REPROJECTION:
+	# Convert back to EPSG:4326(Degrees) so it perfectly overlays on standard satellite images
+	print(f" Re-aligning vector layer back to standard GPS Degrees(EPSG:4326)...")
+	buffer_gdf_global = buffer_gdf_metric.to_crs(epsg=4326)
+
+	# 6. Exporting The Results
+	# create the output directory folder if not exists
+	os.makedirs(os.path.dirname(output_geojson), exist_ok=True)
+
+	print(f "File I/O: Saving the final riparian zone map to file...")
+	buffer_gdf_global.to_file(output_geojson, driver="GeoJSON")
+
+	print(f" Success!! Clean evidence file saved at: {output_geojson}\n")
+	return buffer_gdf_global
 
 
