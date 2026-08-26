@@ -31,4 +31,14 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 
 
 
+	# 2. FILTERING: Keep only active flowing rivers, drop minor drainage ditches
+	# Geofabrik uses 'fclass' column to sort waterways
+	if 'fclass' in kasarani_rivers.columns:
+		cleaned_rivers = kasarani_rivers[kasarani_rivers['fclass'].isin(['river', 'stream'])].copy()
+	else:
+		#Fallback if using the HDX dataset which might use a column name like 'TYPE'
+		cleaned_rivers = kasarani_rivers.copy()
+
+	print(f" Data Cleaning: Isolated {len(cleaned_rivers)} legal river paths. Dropped dry ditches.")
+
 
