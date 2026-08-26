@@ -67,4 +67,22 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	print(f" Success!! Clean evidence file saved at: {output_geojson}\n")
 	return buffer_gdf_global
 
+#TEST THE SCRIPTS LOCALLY- prevent bugs
+
+if __name__ == "__main__":
+	#Define project file paths
+	RAW_SHAPEFILE_PATH = "data/vectors/gis_osm_waterways_free_1.shp"
+	OUTPUT_GEOJSON_PATH = "data/processed/kasarani_60m_riparian_zone.geojson"
+
+	try:
+		final_buffer = process_riparian_pipeline(
+			input_shapefile=RAW_SHAPEFILE_PATH,
+			output_geojson=OUTPUT_GEOJSON_PATH,
+			buffer_distance=60
+		)
+		print(final_buffer.head()) # final Buffer layer overview
+
+	except:
+		print(f"\n Pipeline stopped with an error: \n {str(e)}")
+
 
