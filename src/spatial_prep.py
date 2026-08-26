@@ -42,3 +42,9 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	print(f" Data Cleaning: Isolated {len(cleaned_rivers)} legal river paths. Dropped dry ditches.")
 
 
+	# 3. GIS TRANSFORMATION:  Project degrees to Meters
+	# EPSG: 32737- official mathematical coordinate system for Nairobi
+	print(" Converting coordinates from Degrees to metric system(EPSG:32737)...")
+	rivers_metric = cleaned_rivers.to_crs(epsg=32737)
+
+
