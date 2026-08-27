@@ -1,0 +1,10 @@
+# Extra dependencies for Preprocessing/Cleaning.ipynb (data acquisition + cleaning).
+# Not needed just to run the Streamlit dashboard — see requirements.txt for that.
+-r requirements.txt
+osmnx
+earthengine-api
+geemap
+rasterio
+numpy
+matplotlib
+jupyterlab

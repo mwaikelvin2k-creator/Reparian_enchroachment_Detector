@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg-canvas:#0f1417;
+    --bg-panel:#161c20;
+    --bg-panel-alt:#1b2226;
+    --bg-raised:#20282d;
+    --border:#2a333a;
+    --border-soft:#232b30;
+    --text-primary:#eef2f3;
+    --text-secondary:#8a9aa3;
+    --text-tertiary:#5c6b73;
+    --accent-teal:#4dd0c4;
+    --accent-teal-dim:#3f8f86;
+    --accent-amber:#f2b544;
+    --accent-green:#6ad18a;
+    --accent-red:#e2604f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg-canvas);font-family:'IBM Plex Sans',system-ui,sans-serif;}
+  a{color:var(--accent-teal);text-decoration:none;}
+  a:hover{color:#7fe0d6;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  .cap{text-transform:uppercase;letter-spacing:.08em;}
+</style>
+</helmet>
+
+<div style="width:1440px;height:1000px;background:var(--bg-canvas);display:flex;flex-direction:column;color:var(--text-primary);overflow:hidden;">
+
+  <!-- TOP BAR -->
+  <div style="height:64px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--border);background:var(--bg-panel);">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+        <circle cx="15" cy="15" r="13" stroke="var(--accent-teal)" stroke-width="1.4" opacity="0.35"/>
+        <circle cx="15" cy="15" r="9" stroke="var(--accent-teal)" stroke-width="1.4" opacity="0.6"/>
+        <path d="M9 17 L15 11 L21 17 Z" fill="var(--accent-amber)"/>
+        <rect x="12" y="17" width="6" height="5" fill="var(--accent-amber)"/>
+      </svg>
+      <div>
+        <div style="font-size:15px;font-weight:600;letter-spacing:.02em;line-height:1.2;">RIPARIAN ENCROACHMENT DETECTOR</div>
+        <div class="mono" style="font-size:11px;color:var(--text-tertiary);letter-spacing:.03em;">KASARANI &middot; NAIROBI RIVER BASIN</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:24px;">
+      <div style="display:flex;gap:8px;">
+        <div class="mono cap" style="font-size:11px;padding:6px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text-tertiary);">Phase 1 &middot; Random Forest</div>
+        <div class="mono cap" style="font-size:11px;padding:6px 12px;border-radius:6px;border:1px solid var(--border);color:var(--text-tertiary);">Phase 2 &middot; Deep Learning</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;">
+        <div style="width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);"></div>
+        <div class="mono cap" style="font-size:11px;color:var(--text-tertiary);">Idle</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <!-- SIDEBAR -->
+    <div style="width:288px;flex:0 0 auto;background:var(--bg-panel);border-right:1px solid var(--border);padding:22px 20px;display:flex;flex-direction:column;gap:22px;overflow:auto;">
+
+      <div>
+        <div class="mono cap" style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;">Query Coordinate</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label class="mono" style="font-size:10px;color:var(--text-tertiary);">LATITUDE</label>
+            <input placeholder="e.g. -1.2172" style="background:var(--bg-raised);border:1px solid var(--border);border-radius:6px;padding:9px 10px;color:var(--text-tertiary);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label class="mono" style="font-size:10px;color:var(--text-tertiary);">LONGITUDE</label>
+            <input placeholder="e.g. 36.8905" style="background:var(--bg-raised);border:1px solid var(--border);border-radius:6px;padding:9px 10px;color:var(--text-tertiary);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;">
+          </div>
+        </div>
+        <a href="#" style="display:inline-block;margin-top:8px;font-size:12px;">Use Kasarani sample point &rarr;</a>
+      </div>
+
+      <div style="height:1px;background:var(--border-soft);"></div>
+
+      <div>
+        <div class="mono cap" style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;">Buffer Zone</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-panel-alt);">
+          <div class="mono" style="font-size:20px;font-weight:600;color:var(--accent-teal);">60m</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.35;">Fixed riparian setback, per NEMA guidelines</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:var(--border-soft);"></div>
+
+      <div>
+        <div class="mono cap" style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;">Imagery Source</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;background:rgba(77,208,196,0.08);border:1px solid var(--accent-teal-dim);">
+            <div style="width:7px;height:7px;border-radius:50%;background:var(--accent-teal);"></div>
+            <div style="font-size:12.5px;">Google Earth Engine</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;">
+            <div style="width:7px;height:7px;border-radius:50%;border:1px solid var(--text-tertiary);"></div>
+            <div style="font-size:12.5px;color:var(--text-tertiary);">Mapbox Satellite API</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;">
+            <div style="width:7px;height:7px;border-radius:50%;border:1px solid var(--text-tertiary);"></div>
+            <div style="font-size:12.5px;color:var(--text-tertiary);">Maxar Open Data Program</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:var(--border-soft);"></div>
+
+      <div>
+        <div class="mono cap" style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;">Detection Model</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-panel-alt);">
+            <div style="font-size:12.5px;font-weight:500;color:var(--text-secondary);">Phase 1 &middot; Random Forest</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">Pixel-level material classifier</div>
+          </div>
+          <div style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-panel-alt);">
+            <div style="font-size:12.5px;font-weight:500;color:var(--text-secondary);">Phase 2 &middot; Deep Learning</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">YOLOv8-seg instance counter</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1;"></div>
+
+      <button style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-tertiary);font-weight:600;font-size:13px;letter-spacing:.02em;cursor:not-allowed;">Run Analysis</button>
+      <div>
+        <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5;">Sources: Sentinel-2 &middot; OSM &middot; MS Building Footprints</div>
+        <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px;">No analysis run yet</div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div style="flex:1;padding:22px 24px;min-width:0;">
+      <div style="display:flex;gap:20px;height:100%;">
+
+        <!-- OVERVIEW MAP -->
+        <div style="flex:1;background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;position:relative;overflow:hidden;min-width:0;">
+          <svg viewBox="0 0 720 860" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style="display:block;opacity:0.55;">
+            <rect width="720" height="860" fill="#1a160f"/>
+            <g stroke="#2a2418" stroke-width="1" opacity="0.6">
+              <line x1="0" y1="140" x2="720" y2="140"/>
+              <line x1="0" y1="280" x2="720" y2="280"/>
+              <line x1="0" y1="420" x2="720" y2="420"/>
+              <line x1="0" y1="560" x2="720" y2="560"/>
+              <line x1="0" y1="700" x2="720" y2="700"/>
+              <line x1="180" y1="0" x2="180" y2="860"/>
+              <line x1="360" y1="0" x2="360" y2="860"/>
+              <line x1="540" y1="0" x2="540" y2="860"/>
+            </g>
+            <path d="M0,470 C160,410 260,540 380,470 C480,410 560,520 720,440" fill="none" stroke="#3f5a5e" stroke-width="5"/>
+            <g fill="#4a5860" opacity="0.7">
+              <rect x="120" y="380" width="10" height="7"/><rect x="140" y="400" width="9" height="6"/><rect x="160" y="360" width="10" height="7"/>
+              <rect x="220" y="420" width="9" height="6"/><rect x="260" y="450" width="10" height="7"/><rect x="300" y="400" width="9" height="6"/>
+              <rect x="340" y="470" width="10" height="7"/><rect x="380" y="440" width="9" height="6"/><rect x="420" y="500" width="10" height="7"/>
+              <rect x="460" y="460" width="9" height="6"/><rect x="500" y="430" width="10" height="7"/><rect x="540" y="480" width="9" height="6"/>
+              <rect x="200" y="500" width="10" height="7"/><rect x="280" y="520" width="9" height="6"/><rect x="360" y="540" width="10" height="7"/>
+              <rect x="440" y="520" width="9" height="6"/><rect x="150" y="460" width="10" height="7"/><rect x="590" y="440" width="9" height="6"/>
+            </g>
+            <path d="M100,60 L560,50 L640,300 L580,420 L460,720 L180,760 L60,500 Z" fill="none" stroke="#e8c355" stroke-width="2" opacity="0.55"/>
+          </svg>
+
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+            <div style="text-align:center;max-width:340px;">
+              <svg width="46" height="46" viewBox="0 0 46 46" fill="none" style="margin:0 auto 18px;">
+                <circle cx="23" cy="23" r="20" stroke="var(--accent-teal)" stroke-width="1.4" stroke-dasharray="4 4" opacity="0.6"/>
+                <circle cx="23" cy="23" r="3" fill="var(--accent-teal)"/>
+                <line x1="23" y1="4" x2="23" y2="12" stroke="var(--accent-teal)" stroke-width="1.4"/>
+                <line x1="23" y1="34" x2="23" y2="42" stroke="var(--accent-teal)" stroke-width="1.4"/>
+                <line x1="4" y1="23" x2="12" y2="23" stroke="var(--accent-teal)" stroke-width="1.4"/>
+                <line x1="34" y1="23" x2="42" y2="23" stroke="var(--accent-teal)" stroke-width="1.4"/>
+              </svg>
+              <div style="font-size:16px;font-weight:600;color:var(--text-primary);">Enter coordinates to inspect a buffer zone</div>
+              <div style="font-size:12.5px;color:var(--text-secondary);margin-top:8px;line-height:1.5;">Set a latitude and longitude in the sidebar, or click a point inside the Kasarani AOI, then run the analysis.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HOW IT WORKS -->
+        <div style="width:360px;flex:0 0 auto;display:flex;flex-direction:column;gap:18px;">
+          <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:20px;">
+            <div class="cap" style="font-size:11px;color:var(--text-tertiary);letter-spacing:.06em;margin-bottom:14px;">How It Works</div>
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div style="display:flex;gap:12px;">
+                <div class="mono" style="width:22px;height:22px;flex:0 0 auto;border-radius:50%;background:var(--bg-raised);color:var(--accent-teal);display:flex;align-items:center;justify-content:center;font-size:11px;">1</div>
+                <div>
+                  <div style="font-size:13px;font-weight:500;">Enter a coordinate</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Query point along the Nairobi River within the Kasarani AOI.</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;">
+                <div class="mono" style="width:22px;height:22px;flex:0 0 auto;border-radius:50%;background:var(--bg-raised);color:var(--accent-teal);display:flex;align-items:center;justify-content:center;font-size:11px;">2</div>
+                <div>
+                  <div style="font-size:13px;font-weight:500;">Choose a detection model</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Random Forest baseline, or the Phase 2 deep-learning counter.</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;">
+                <div class="mono" style="width:22px;height:22px;flex:0 0 auto;border-radius:50%;background:var(--bg-raised);color:var(--accent-teal);display:flex;align-items:center;justify-content:center;font-size:11px;">3</div>
+                <div>
+                  <div style="font-size:13px;font-weight:500;">Run the analysis</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">View the 60m buffer, highlighted footprints, and a live structure count.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:rgba(242,181,68,0.07);border:1px solid var(--accent-amber);border-radius:12px;padding:20px;">
+            <div class="mono" style="font-size:34px;font-weight:700;color:var(--accent-amber);line-height:1;">700</div>
+            <div style="font-size:12px;color:var(--text-primary);margin-top:6px;">structures estimated within Kasarani&rsquo;s 60m riparian buffer</div>
+            <div style="height:1px;background:rgba(242,181,68,0.25);margin:14px 0;"></div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">Coarse government models detect just <span style="color:var(--text-primary);font-weight:600;">118</span> &mdash; clustered informal roofs blend into a single pixel grid.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
