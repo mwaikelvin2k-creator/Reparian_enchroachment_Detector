@@ -14,7 +14,7 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	if not os.path.exists(input_shapefile):
 		raise FileNotFoundError(
 			f" Missing raw vector file! please ensure you have downloaded "
-			f" and placed the shapefile at: {inpuy_shapefile}"
+			f" and placed the shapefile at: {input_shapefile}"
 		)
 
 	# 1. OPTIMIZATION: define bounding box strictly over Kasarani
@@ -49,7 +49,7 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 
 	# 4. DRAW 60M BOUNDARY
 	print(f"Buffer Zone: Drawing the legal mandatory{buffer_distance} - meter protection zone...")
-	buffer_metric = rivers_metric.buffer(buffer_distance)
+	buffer_gdf_metric = rivers_metric.buffer(buffer_distance)
 
 
 	# 5. REPROJECTION:
@@ -61,7 +61,7 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	# create the output directory folder if not exists
 	os.makedirs(os.path.dirname(output_geojson), exist_ok=True)
 
-	print(f "File I/O: Saving the final riparian zone map to file...")
+	print(f"File I/O: Saving the final riparian zone map to file...")
 	buffer_gdf_global.to_file(output_geojson, driver="GeoJSON")
 
 	print(f" Success!! Clean evidence file saved at: {output_geojson}\n")
@@ -82,7 +82,7 @@ if __name__ == "__main__":
 		)
 		print(final_buffer.head()) # final Buffer layer overview
 
-	except:
+	except Exception as e:
 		print(f"\n Pipeline stopped with an error: \n {str(e)}")
 
 
