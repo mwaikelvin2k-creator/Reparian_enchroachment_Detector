@@ -14,7 +14,7 @@ def process_riparian_pipeline(input_shapefile, output_geojson, buffer_distance=6
 	if not os.path.exists(input_shapefile):
 		raise FileNotFoundError(
 			f" Missing raw vector file! please ensure you have downloaded "
-			f" and placed the shapefile at: {inpuy_shapefile}"
+			f" and placed the shapefile at: {input_shapefile}"
 		)
 
 	# 1. OPTIMIZATION: define bounding box strictly over Kasarani
