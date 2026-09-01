@@ -361,7 +361,8 @@ with st.sidebar:
     if st.button("Jump to structure closest to river", width="stretch"):
         st.session_state["pending_jump"] = hotspot_latlon()
         st.rerun()
-    view_radius = st.slider("View radius (m)", min_value=100, max_value=600, value=250, step=50)
+    default_buffer = int(metadata["buffer_meters"]) if model_ready else 30
+    view_radius = st.slider("View radius (m)", min_value=0, max_value=100, value=default_buffer, step=5)
 
     st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Detection Layer</div>', unsafe_allow_html=True)
     mode_options = [MODE_GEOMETRIC, MODE_RF, MODE_COMPARE] if model_ready else [MODE_GEOMETRIC]
