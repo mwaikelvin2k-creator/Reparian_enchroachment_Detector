@@ -1,0 +1,55 @@
+# ---- Project data & model artifacts (large / regenerable, don't commit) ----
+data/raw/
+data/processed/
+data/vectors/
+models/
+runs/
+outputs/
+dataset/
+*.tif
+*.tiff
+*.geojson
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.joblib
+*.pkl
+*.pt
+*.onnx
+
+# Keep small, hand-written reference/config files even though the patterns above exclude them
+!data/vectors/README.md
+!dataset/data.yaml
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+*.egg
+.venv/
+venv/
+env/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- Environment / secrets ----
+.env
+*.env.local
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- Logs ----
+*.log
