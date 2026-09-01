@@ -1,10 +1,15 @@
-# Extra dependencies for Preprocessing/Cleaning.ipynb (data acquisition + cleaning).
-# Not needed just to run the Streamlit dashboard — see requirements.txt for that.
+# Extra dependencies for the data + modeling pipeline
+# (Preprocessing/Cleaning.ipynb, build_building_features.py,
+#  label_buildings_by_river_distance.py, train_rf.py,
+#  kasarani_rf_pipeline.ipynb).
+# Not needed just to run the Streamlit dashboard - see requirements.txt for that.
 -r requirements.txt
 osmnx
 earthengine-api
 geemap
 rasterio
-numpy
+rasterstats
+scikit-learn
+joblib
 matplotlib
 jupyterlab

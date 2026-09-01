@@ -6,4 +6,5 @@ shapely
 pyproj
 pyogrio
 pandas
+numpy
 plotly
