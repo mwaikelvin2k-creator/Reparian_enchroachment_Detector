@@ -6,8 +6,8 @@ The goal is to accurately isolate and approximate the real-world count of 700 st
 
 The Streamlit dashboard (`app.py`) reads the preprocessed layers in `Preprocessing/` (run `Cleaning.ipynb` first if they're missing) and lets you query any coordinate, adjust the riparian buffer distance, and see live structure counts by risk tier. For a fuller walkthrough — creating the virtual environment, troubleshooting installs, and regenerating the source data — see [SETUP.md](SETUP.md).
 
-```bash
-python -m venv .venv
+```bash in cmd
+python -m venv venv
 .venv/Scripts/activate       # .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
 streamlit run app.py
