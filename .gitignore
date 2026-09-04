@@ -1,0 +1,18 @@
+# Raw + processed geospatial data -- regenerate by running this notebook
+data/raw/
+data/processed/
+data/vectors/
+data/tiles/
+
+# Trained model weights -- regenerate by re-running the training cells
+# (If your team wants ONE specific checkpoint version-controlled, use
+#  `git lfs track` on that single file instead of un-ignoring this folder.)
+models/
+runs/
+
+# Standard Python / notebook noise
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+.claude
