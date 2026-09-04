@@ -89,7 +89,8 @@ class RFTrainer:
         self,
         feature_columns: list[str] = FEATURE_COLUMNS,
         n_estimators: int = 200,
-        max_depth: int | None = None,
+        max_depth: int | None = 20,
+        min_samples_leaf: int = 5,
         class_weight: str | None = "balanced",
         random_state: int = 42,
         n_jobs: int = -1,
@@ -98,6 +99,7 @@ class RFTrainer:
         self.model = RandomForestClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
             class_weight=class_weight,
             random_state=random_state,
             n_jobs=n_jobs,
@@ -137,15 +139,20 @@ class RFTrainer:
 # ---------------------------------------------------------------------------
 
 class ModelPersister:
-    """Saves/loads a trained model to disk. This is the 'pickling' step —
-    it lets the trained model be reused later without retraining, which is
-    a prerequisite for deployment but not deployment itself."""
+    """Saves/loads a trained model bundled with the exact feature list it
+    was trained on, so a mismatch is caught immediately and clearly,
+    instead of surfacing deep inside sklearn's validation later."""
 
     @staticmethod
-    def save(model, path: str):
-        joblib.dump(model, path)
-        print(f"Model saved to {path}")
+    def save(model, feature_columns: list[str], path: str):
+        bundle = {"model": model, "feature_columns": feature_columns}
+        joblib.dump(bundle, path, compress=3)
+        size_mb = Path(path).stat().st_size / (1024 * 1024)
+        print(f"Model saved to {path} ({len(feature_columns)} features, {size_mb:.1f} MB)")
+        if size_mb > 500:
+            print("Warning: model file is large — consider lowering max_depth or n_estimators.")
 
     @staticmethod
     def load(path: str):
-        return joblib.load(path)
+        bundle = joblib.load(path)
+        return bundle["model"], bundle["feature_columns"]
