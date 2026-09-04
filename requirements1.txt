@@ -1,0 +1,28 @@
+# Dependencies for 01_pair1_preprocessing.ipynb
+# Versions pinned from the venv that actually ran this notebook successfully
+# (Python 3.12.13). Set up with:
+#
+#   python3 -m venv .venv
+#   source .venv/bin/activate      # Windows: .venv\Scripts\activate
+#   pip install -r requirements-pair1.txt
+#   python -m ipykernel install --user --name riversentinel-venv
+#
+# Earth Engine also needs a one-time login (ee.Authenticate() in the
+# notebook opens a browser) and a Google Cloud project ID tied to your
+# account -- see Step 1.3's markdown for how to find one.
+
+numpy==2.5.2
+pandas==3.0.5
+geopandas==1.1.4
+shapely==2.1.2
+pyproj==3.7.2
+pyogrio==0.13.0
+rasterio==1.5.1
+pillow==12.3.0
+requests==2.34.2
+earthengine-api==1.7.42
+geemap==0.38.4
+
+# Only needed to actually run the .ipynb from the command line (jupyter
+# nbconvert --execute) rather than opening it in Jupyter/VS Code directly.
+ipykernel
