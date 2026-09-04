@@ -4,11 +4,22 @@ Computes multispectral indices (NDVI, NDBI, MNDWI) from Sentinel-2 and
 exports sanitized training tables for three separate tasks: encroachment
 (building-only), building-vs-not-building detection, and four-class
 land-cover classification.
+
+FIXES applied (vs original):
+- label_land_cover now emits a loud warning that labels are heuristic
+  (threshold-based) and NOT validated ground truth.
+- Added optional external_landcover_path parameter to run_land_cover_preprocessing
+  so users can supply real land-cover labels (e.g. ESA WorldCover) instead
+  of the circular index-threshold approach.
+- compute_spectral_features now also computes polygon centroids (x_centroid,
+  y_centroid) and stores them in the returned DataFrame, enabling spatial
+  block train/test splits in modeling.py.
 """
 
 from pathlib import Path
 import math
 import time
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -135,7 +146,7 @@ def _sample_raster_at_points(raster_path: str, points: list) -> np.ndarray:
     per band. NaN rows mark points with no data at that location."""
     with rasterio.open(raster_path) as src:
         samples = np.array(list(src.sample(points)), dtype=float)
-    samples[samples == 0] = np.nan  # Sentinel-2 SR nodata is commonly 0 across all bands
+    samples[samples == 0] = np.nan
     all_zero_rows = np.all(np.isnan(samples) | (samples == 0), axis=1)
     samples[all_zero_rows] = np.nan
     return samples
@@ -156,6 +167,9 @@ def compute_spectral_features(raster_path: str, polygons: gpd.GeoDataFrame) -> p
     single Sentinel-2 pixel; a polygon with no overlapping valid pixels
     gets NaN features rather than a fabricated all-zero reading, so it can
     be dropped downstream instead of silently entering training as real data.
+
+    FIX: Also stores polygon centroids as x_centroid, y_centroid to enable
+    spatial block train/test splits in modeling.py.
     """
     records = []
     with rasterio.open(raster_path) as src:
@@ -166,6 +180,11 @@ def compute_spectral_features(raster_path: str, polygons: gpd.GeoDataFrame) -> p
 
         for _, row in polygons.iterrows():
             feat = {"id": row["id"]}
+            # Store centroid for spatial splits
+            centroid = row.geometry.centroid
+            feat["x_centroid"] = centroid.x
+            feat["y_centroid"] = centroid.y
+
             inside = geometry_mask(
                 [row.geometry.__geo_interface__], out_shape=out_shape,
                 transform=transform, invert=True, all_touched=True,
@@ -196,13 +215,16 @@ def compute_spectral_features(raster_path: str, polygons: gpd.GeoDataFrame) -> p
 
 def extract_point_features(raster_path: str, points: gpd.GeoDataFrame) -> pd.DataFrame:
     """Same feature schema as compute_spectral_features, for point geometries
-    (single-pixel lookups rather than polygon zonal statistics)."""
+    (single-pixel lookups rather than polygon zonal statistics).
+    For point samples we store the point coordinates as x_centroid/y_centroid."""
     coords = [(geom.x, geom.y) for geom in points.geometry]
     samples = _sample_raster_at_points(raster_path, coords)
 
     records = []
-    for pid, vals in zip(points["id"], samples):
-        feat = {"id": pid}
+    for pid, (geom, vals) in enumerate(zip(points.geometry, samples)):
+        feat = {"id": pid if "id" not in points.columns else points.iloc[pid]["id"]}
+        feat["x_centroid"] = geom.x
+        feat["y_centroid"] = geom.y
         if np.any(np.isnan(vals)):
             for bname in BAND_NAMES:
                 feat[f"mean_{bname}"] = np.nan
@@ -254,10 +276,25 @@ def sample_grid_points(aoi_metric: gpd.GeoDataFrame, spacing_m: float = 200) -> 
 
 def label_land_cover(features: pd.DataFrame) -> pd.Series:
     """Assigns one of four land-cover classes from spectral indices:
-    water, vegetation, built_up, bare_soil. Threshold-based, since no
-    ground-truth land-cover labels exist for this area — this bootstraps
-    training labels for a supervised model rather than standing in as a
-    validated classification on its own."""
+    water, vegetation, built_up, bare_soil.
+
+    WARNING: These are HEURISTIC, threshold-based pseudo-labels derived
+    from the SAME indices used as model features. This creates a circular
+    dependency: the model learns to replicate index thresholds rather than
+    generalizable spectral patterns. For any publication or operational
+    deployment, replace this with validated ground-truth labels
+    (e.g. ESA WorldCover, manual photo-interpretation).
+    """
+    warnings.warn(
+        "label_land_cover() uses heuristic index thresholds (MNDWI>0 -> water, "
+        "NDVI>0.3 -> vegetation, NDBI>0 -> built_up). These are NOT validated "
+        "ground-truth labels. The resulting model learns to replicate index "
+        "thresholds, which is circular. For production use, supply real labels "
+        "via external_landcover_path in run_land_cover_preprocessing().",
+        category=UserWarning,
+        stacklevel=2,
+    )
+
     def classify(row):
         if row["mndwi"] > 0:
             return "water"
@@ -325,7 +362,7 @@ def run_preprocessing(
     features = compute_spectral_features(str(raster_path), buildings)
     training_table = buildings[["id", "encroachment"]].merge(features, on="id")
     training_table = training_table.dropna(subset=[c for c in features.columns if c != "id"])
-    feature_cols = [c for c in features.columns if c != "id"]
+    feature_cols = [c for c in features.columns if c not in ("id", "x_centroid", "y_centroid")]
 
     return {
         "aoi": aoi, "aoi_wgs84": aoi_wgs84, "river": river, "buildings": buildings,
@@ -351,24 +388,49 @@ def run_building_detection_preprocessing(prep: dict, n_negative_samples: int | N
     negative_features = extract_point_features(str(raster_path), negatives)
     negative_features["is_building"] = 0
 
-    feature_cols = [c for c in positive_features.columns if c not in ("id", "is_building")]
+    feature_cols = [c for c in positive_features.columns if c not in ("id", "is_building", "x_centroid", "y_centroid")]
     combined = pd.concat([positive_features, negative_features], ignore_index=True)
     combined = combined.dropna(subset=feature_cols).reset_index(drop=True)
 
     return {"training_table": combined, "feature_cols": feature_cols, "output_dir": prep["output_dir"]}
 
 
-def run_land_cover_preprocessing(prep: dict, grid_spacing_m: float = 200) -> dict:
+def run_land_cover_preprocessing(prep: dict, grid_spacing_m: float = 200,
+                                  external_landcover_path: str | None = None) -> dict:
     """Four-class land-cover training table, reusing the AOI/raster already
     acquired by run_preprocessing. Sampled on a regular grid across the AOI,
-    independent of building locations."""
+    independent of building locations.
+
+    NEW: If external_landcover_path is provided, it must be a GeoDataFrame
+    (or path to one) with a 'land_cover' column and polygon geometry. Grid
+    points are spatially joined to these polygons to obtain real labels
+    instead of the heuristic index-threshold labels.
+    """
     aoi, raster_path = prep["aoi"], prep["raster_path"]
 
     grid_points = sample_grid_points(aoi, spacing_m=grid_spacing_m)
     features = extract_point_features(str(raster_path), grid_points)
 
-    feature_cols = [c for c in features.columns if c != "id"]
+    feature_cols = [c for c in features.columns if c not in ("id", "x_centroid", "y_centroid")]
     features = features.dropna(subset=feature_cols).reset_index(drop=True)
-    features["land_cover"] = label_land_cover(features)
+
+    if external_landcover_path is not None:
+        # Use real external labels
+        lc_gdf = gpd.read_file(external_landcover_path) if isinstance(external_landcover_path, str) else external_landcover_path
+        if "land_cover" not in lc_gdf.columns:
+            raise ValueError("External land-cover data must contain a 'land_cover' column.")
+        lc_gdf = lc_gdf.to_crs(aoi.crs)
+        # Spatial join: each grid point gets the land_cover of the polygon it falls inside
+        joined = gpd.sjoin(
+            gpd.GeoDataFrame(features, geometry=gpd.points_from_xy(features.x_centroid, features.y_centroid), crs=aoi.crs),
+            lc_gdf[["geometry", "land_cover"]],
+            how="left", predicate="within"
+        )
+        features["land_cover"] = joined["land_cover"]
+        # Drop points that didn't fall inside any land-cover polygon
+        features = features.dropna(subset=["land_cover"]).reset_index(drop=True)
+        print(f"Using external land-cover labels: {features['land_cover'].value_counts().to_dict()}")
+    else:
+        features["land_cover"] = label_land_cover(features)
 
     return {"training_table": features, "feature_cols": feature_cols, "output_dir": prep["output_dir"]}

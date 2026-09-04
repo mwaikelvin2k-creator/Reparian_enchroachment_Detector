@@ -1,5 +1,6 @@
 {
   "model_type": "RandomForestClassifier",
+  "model_name": "encroachment_rf",
   "task_type": "binary",
   "label_col": "encroachment",
   "features_used": [
@@ -22,9 +23,17 @@
     "precision": 0.09490616621983915,
     "recall": 0.4745308310991957,
     "f1": 0.1581769436997319,
-    "roc_auc": 0.7690976529728593
+    "roc_auc": 0.7690976529728593,
+    "average_precision": 0.14418177460474443,
+    "baseline_accuracy": 0.96751154080655,
+    "majority_class": 0,
+    "class_distribution": {
+      "0": 0.96751154080655,
+      "1": 0.032488459193450045
+    }
   },
   "n_train": 45923,
   "n_test": 11481,
-  "trained_at": "2026-09-04T08:22:42.499634+00:00"
+  "spatial_split": true,
+  "trained_at": "2026-09-04T16:26:27.089719+00:00"
 }
