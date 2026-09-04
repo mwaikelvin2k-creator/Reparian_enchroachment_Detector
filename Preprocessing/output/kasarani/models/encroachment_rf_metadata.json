@@ -1,0 +1,30 @@
+{
+  "model_type": "RandomForestClassifier",
+  "task_type": "binary",
+  "label_col": "encroachment",
+  "features_used": [
+    "mean_B4",
+    "mean_B3",
+    "mean_B2",
+    "mean_B8",
+    "mean_B11",
+    "ndvi",
+    "ndbi",
+    "mndwi"
+  ],
+  "params": {
+    "n_estimators": 300,
+    "max_depth": 10,
+    "class_weight": "balanced",
+    "n_jobs": -1
+  },
+  "metrics": {
+    "precision": 0.09490616621983915,
+    "recall": 0.4745308310991957,
+    "f1": 0.1581769436997319,
+    "roc_auc": 0.7690976529728593
+  },
+  "n_train": 45923,
+  "n_test": 11481,
+  "trained_at": "2026-09-04T08:22:42.499634+00:00"
+}
