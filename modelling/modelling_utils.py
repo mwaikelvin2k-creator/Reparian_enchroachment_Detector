@@ -13,7 +13,7 @@ import joblib
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.metrics import (
-    classification_report, confusion_matrix, accuracy_score, f1_score,
+    classification_report, confusion_matrix, accuracy_score, f1_score, precision_recall_curve,
 )
 
 
@@ -133,6 +133,27 @@ class RFTrainer:
             "importance": importances,
         }).sort_values("importance", ascending=False).reset_index(drop=True)
 
+
+class ThresholdTuner:
+    """Finds a probability threshold that maximizes F1 (balances precision
+    and recall), rather than accepting the default 0.5 cutoff."""
+
+    @staticmethod
+    def find_best_f1_threshold(model, X_test, y_test):
+        probs = model.predict_proba(X_test)[:, 1]
+        precisions, recalls, thresholds = precision_recall_curve(y_test, probs)
+
+        f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1] + 1e-9)
+        best_idx = f1_scores.argmax()
+
+        print(f"Best threshold: {thresholds[best_idx]:.3f}")
+        print(f"  precision: {precisions[best_idx]:.3f}, recall: {recalls[best_idx]:.3f}, f1: {f1_scores[best_idx]:.3f}")
+        return thresholds[best_idx]
+
+    @staticmethod
+    def predict_at_threshold(model, X, threshold: float):
+        probs = model.predict_proba(X)[:, 1]
+        return (probs >= threshold).astype(int)
 
 # ---------------------------------------------------------------------------
 # Step 4 — Persistence (pickling)

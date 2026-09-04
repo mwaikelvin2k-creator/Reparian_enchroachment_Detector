@@ -1,0 +1,6 @@
+data/raw/tiles/
+data/output/*.csv
+modelling/models/*.pkl
+Preprocessing/**/cache/
+__pycache__/
+*.pyc
