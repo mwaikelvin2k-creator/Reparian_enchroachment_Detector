@@ -4,7 +4,7 @@
 #
 #   python3 -m venv .venv
 #   source .venv/bin/activate      # Windows: .venv\Scripts\activate
-#   pip install -r requirements-pair1.txt
+#   pip install -r requirements1.txt
 #   python -m ipykernel install --user --name riversentinel-venv
 #
 # Earth Engine also needs a one-time login (ee.Authenticate() in the
