@@ -8,6 +8,7 @@ from folium.plugins import FastMarkerCluster
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 from pyproj import Transformer
 from shapely.geometry import Point, box
@@ -29,6 +30,17 @@ WGS84 = "EPSG:4326"
 
 DEFAULT_LAT = -1.263295
 DEFAULT_LON = 36.880376
+NAIROBI_LOCATIONS = {
+    "Kasarani": (-1.2295, 36.8908),
+    "Mwiki": (-1.2154, 36.8967),
+    "Sunton": (-1.2244, 36.9012),
+    "Hunters": (-1.2312, 36.8874),
+    "Clay City": (-1.2401, 36.8851),
+    "Roysambu": (-1.2190, 36.8890),
+    "Zimmerman": (-1.2080, 36.8890),
+    "Githurai 44": (-1.1990, 36.9020),
+    "Kahawa West": (-1.1890, 36.9150),
+}
 MAX_POLYGONS = 600
 
 RISK_COLORS = {
@@ -58,9 +70,9 @@ MODE_RF = "Random Forest"
 MODE_COMPARE = "Compare rule vs model"
 
 BASEMAPS = {
-    "Dark (CartoDB)": "CartoDB dark_matter",
-    "Satellite (Esri)": "Esri.WorldImagery",
     "OpenStreetMap": "OpenStreetMap",
+    "Satellite (Esri)": "Esri.WorldImagery",
+    "Dark (CartoDB — requires API key)": "CartoDB dark_matter",
 }
 
 st.set_page_config(
@@ -183,6 +195,36 @@ def fit_zoom(span_lon: float, px_width: int = 1000) -> int:
     if span_lon <= 0:
         return 12
     return max(1, int(math.floor(math.log2(360 * px_width / (256 * span_lon)))))
+
+
+@st.cache_data(show_spinner="Searching OpenStreetMap...", ttl=3600)
+def geocode_place_osm(query: str) -> tuple[float, float, str] | None:
+    """Looks up a place name via OSM's Nominatim service, biased to Nairobi.
+    Free, no API key — but rate-limited by Nominatim's usage policy (roughly
+    one request per second), so results are cached for an hour."""
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": f"{query}, Nairobi, Kenya",
+                "format": "json",
+                "limit": 1,
+                "viewbox": "36.75,-1.35,37.00,-1.15",  # Nairobi bounding box
+                "bounded": 1,
+            },
+            headers={"User-Agent": "riparian-encroachment-detector/1.0"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+    if not results:
+        return None
+
+    match = results[0]
+    return float(match["lat"]), float(match["lon"]), match.get("display_name", query)
 
 
 # ------------------------------------------------------------- model summaries
@@ -348,7 +390,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="rd-eyebrow">Query Coordinate</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow">Query Location</div>', unsafe_allow_html=True)
     # A queued jump is applied before the widgets render — Streamlit refuses
     # session-state writes to a widget key after that widget exists.
     if "pending_jump" in st.session_state:
@@ -356,13 +398,41 @@ with st.sidebar:
     st.session_state.setdefault("lat", DEFAULT_LAT)
     st.session_state.setdefault("lon", DEFAULT_LON)
 
-    lat = st.number_input("Latitude", key="lat", format="%.6f")
-    lon = st.number_input("Longitude", key="lon", format="%.6f")
+    location_mode = st.radio(
+        "Location input", ["Choose a place", "Search (OpenStreetMap)", "Custom coordinates"],
+        label_visibility="collapsed",
+    )
+
+    if location_mode == "Choose a place":
+        place_choice = st.selectbox("Place", list(NAIROBI_LOCATIONS.keys()))
+        st.session_state["lat"], st.session_state["lon"] = NAIROBI_LOCATIONS[place_choice]
+        lat, lon = st.session_state["lat"], st.session_state["lon"]
+        st.caption(f"{lat:.5f}, {lon:.5f}")
+
+    elif location_mode == "Search (OpenStreetMap)":
+        query = st.text_input("Place name", placeholder="e.g. Mwiki, Nairobi")
+        if query:
+            result = geocode_place_osm(query)
+            if result is None:
+                st.warning("No match found for that place — try a more specific name.")
+                lat, lon = st.session_state["lat"], st.session_state["lon"]
+            else:
+                lat, lon, display_name = result
+                st.session_state["lat"], st.session_state["lon"] = lat, lon
+                st.caption(f"Found: {display_name}")
+        else:
+            lat, lon = st.session_state["lat"], st.session_state["lon"]
+        st.caption("Free-text search via OpenStreetMap's Nominatim service — no API key required.")
+
+    else:
+        lat = st.number_input("Latitude", key="lat", format="%.6f")
+        lon = st.number_input("Longitude", key="lon", format="%.6f")
+
     if st.button("Jump to structure closest to river", width="stretch"):
         st.session_state["pending_jump"] = hotspot_latlon()
         st.rerun()
-    default_buffer = int(metadata["buffer_meters"]) if model_ready else 30
-    view_radius = st.slider("View radius (m)", min_value=0, max_value=100, value=default_buffer, step=5)
+
+    view_radius = st.slider("View radius (m)", min_value=100, max_value=600, value=250, step=50)
 
     st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Detection Layer</div>', unsafe_allow_html=True)
     mode_options = [MODE_GEOMETRIC, MODE_RF, MODE_COMPARE] if model_ready else [MODE_GEOMETRIC]
