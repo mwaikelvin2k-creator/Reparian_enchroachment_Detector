@@ -48,8 +48,27 @@ into a scored building layer — the input Module 4 (fusion) depends on.
 **Ground rule:** every step's output file name is the next step's input — don't rename an
 output without checking who reads it downstream.
 
-Setup:
+## Module 4 — Fusion & Calibration Results
 
-```
-pip install -r requirements.txt
-```
+Module 4 fuses candidate building detections (Google Open Buildings) with the Random Forest material classification model and calculates exact metric distances to river vector baselines[cite: 1, 2].
+
+### Pipeline Workflow
+1. **Distance Measurement:** Calculates straight-line distance from each detected structure centroid to the nearest river geometry in EPSG:32737[cite: 2].
+2. **Multi-Filter Screening:** Applies confidence screening (`>= 0.70`) and Random Forest material-overlap checks (`rf_builtup_prob >= 0.05`)[cite: 2].
+3. **Ground Truth Distance Calibration:** Sweeps metric distance thresholds against Kasarani's independent field baseline (Pamoja Trust manual survey, ~700 buildings)[cite: 2]. The optimal calibrated cutoff was identified at **16 meters**[cite: 2].
+
+### Summary Results
+
+| Region | Total Screened | Passed Filters | Encroaching Count (<= 16m) | Ground Truth Calibrated |
+| :--- | :--- | :--- | :--- | :--- |
+| **Kasarani** | 56,678 | 56,415 | **731** | Yes (vs. ~700 ground truth)[cite: 2] |
+| **Gatharaini** | 27,123 | 27,046 | **87** | No (16m cutoff extrapolation)[cite: 2] |
+| **Motoine** | 28,554 | 28,104 | **348** | No (16m cutoff extrapolation)[cite: 2] |
+
+*Note: Gatharaini and Motoine apply the 16m threshold as an untested extrapolation until field validation data becomes available[cite: 2].*
+
+### Primary Output Artifacts
+* `{region}_encroaching_buildings.csv` — Tabular triage data including coordinates, confidence scores, and metric river distances[cite: 2].
+* `{region}_encroaching_buildings.geojson` — Spatial vector layers ready for GIS analysis and mapping.
+* `pipeline_summary.json` — Consolidated execution stats and calibration metadata[cite: 2].
+* `kasarani_encroachment_map.html` — Interactive Folium web visualization map.
