@@ -1,7 +1,0 @@
-earthengine-api
-geopandas
-shapely
-pandas
-scikit-learn
-joblib
-concurrent.futures

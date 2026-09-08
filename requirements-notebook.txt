@@ -13,3 +13,13 @@ scikit-learn
 joblib
 matplotlib
 jupyterlab
+streamlit
+geopandas
+folium
+streamlit-folium
+shapely
+pyproj
+pyogrio
+pandas
+numpy
+plotly
