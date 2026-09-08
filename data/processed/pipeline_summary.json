@@ -1,0 +1,22 @@
+{
+  "Kasarani": {
+    "buildings_screened": 56678,
+    "passed_confidence_and_material_filter": 56415,
+    "encroaching_count": 731,
+    "calibrated_against_ground_truth": true
+  },
+  "Gatharaini": {
+    "buildings_screened": 27123,
+    "passed_confidence_and_material_filter": 27046,
+    "encroaching_count": 87,
+    "calibrated_against_ground_truth": false
+  },
+  "Motoine": {
+    "buildings_screened": 28554,
+    "passed_confidence_and_material_filter": 28104,
+    "encroaching_count": 348,
+    "calibrated_against_ground_truth": false
+  },
+  "calibrated_distance_m": 16,
+  "note": "Kasarani is the only region calibrated against an independent field count (Pamoja Trust, ~700). Gatharaini and Motoine reuse that same 16m cutoff untested \u2014 no ground truth exists yet for either."
+}
