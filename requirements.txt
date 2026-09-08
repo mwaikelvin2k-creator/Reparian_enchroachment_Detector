@@ -1,10 +1,7 @@
-streamlit
+earthengine-api
 geopandas
-folium
-streamlit-folium
 shapely
-pyproj
-pyogrio
 pandas
-numpy
-plotly
+scikit-learn
+joblib
+concurrent.futures
