@@ -24,15 +24,27 @@ SUMMARY_PATH = DATA_DIR / "pipeline_summary.json"
 METRIC_CRS = "EPSG:32737"
 WGS84 = "EPSG:4326"
 
-REGIONS = ["Kasarani", "Gatharaini", "Motoine"]
+REGION = "Kasarani"
 # Matches 01_preprocessing.ipynb / 02_modelling.ipynb exactly — the fixed-radius
-# circle each region's AOI is built from.
-REGION_CENTERS = {
-    "Kasarani": (36.8969, -1.2296),
-    "Gatharaini": (36.95952127354356, -1.2252700532171976),
-    "Motoine": (36.74237847877641, -1.3113205815273903),
-}
+# circle Kasarani's AOI is built from. Gatharaini and Motoine only contributed
+# training data to the shared model; they were never intended as end-user areas.
+REGION_CENTERS = {"Kasarani": (36.8969, -1.2296)}
 CASE_STUDY_RADIUS_KM = 3
+
+# Named localities within the Kasarani AOI, for map navigation. Best-effort
+# approximations — worth spot-checking against OSM before treating as exact.
+KASARANI_AREAS = {
+    "Kasarani town centre": (-1.2295, 36.8908),
+    "Mwiki": (-1.2154, 36.8967),
+    "Sunton": (-1.2244, 36.9012),
+    "Hunters": (-1.2312, 36.8874),
+    "Clay City": (-1.2401, 36.8851),
+    "Roysambu": (-1.2190, 36.8890),
+    "Zimmerman": (-1.2080, 36.8890),
+    "Githurai 44": (-1.1990, 36.9020),
+    "Kahawa West": (-1.1890, 36.9150),
+}
+AREA_COMPARE_RADIUS_M = 600
 FEATURE_COLS = ["B2", "B3", "B4", "B8", "B11", "B12", "NDVI", "NDBI"]
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
 DEFAULT_MATERIAL_OVERLAP_THRESHOLD = 0.05
@@ -177,20 +189,17 @@ def apply_filters(table: pd.DataFrame, confidence_threshold: float,
 
 
 @st.cache_data(show_spinner="Searching OpenStreetMap...", ttl=3600)
-def geocode_place_osm(query: str) -> tuple[float, float, str] | None:
-    """Free-text place lookup via OSM's Nominatim, hard-restricted to the
-    Kasarani AOI. Gatharaini and Motoine were used to train the model, so
-    their areas are excluded — anything Nominatim returns outside the
-    Kasarani 3km circle is rejected."""
-    aoi_lon, aoi_lat = REGION_CENTERS["Kasarani"]
+def geocode_place_osm(query: str, region: str) -> tuple[float, float, str] | None:
+    """Free-text place lookup via OSM's Nominatim, biased toward the
+    selected region so a search stays relevant to what's on screen."""
+    lon, lat = REGION_CENTERS[region]
     pad = (CASE_STUDY_RADIUS_KM / 111.0) * 1.5
     try:
         response = requests.get(
             "https://nominatim.openstreetmap.org/search",
             params={
-                "q": f"{query}, Kasarani, Nairobi, Kenya", "format": "json", "limit": 1,
-                "viewbox": f"{aoi_lon - pad},{aoi_lat - pad},{aoi_lon + pad},{aoi_lat + pad}",
-                "bounded": 1,
+                "q": f"{query}, Nairobi, Kenya", "format": "json", "limit": 1,
+                "viewbox": f"{lon - pad},{lat - pad},{lon + pad},{lat + pad}", "bounded": 1,
             },
             headers={"User-Agent": "riparian-encroachment-detector/1.0"},
             timeout=8,
@@ -202,14 +211,7 @@ def geocode_place_osm(query: str) -> tuple[float, float, str] | None:
     if not results:
         return None
     match = results[0]
-    lat, lon = float(match["lat"]), float(match["lon"])
-    # The Nominatim viewbox is a rectangle, so a corner could still land in
-    # Gatharaini/Motoine — enforce the actual circular AOI with a small margin.
-    dlon_km = (lon - aoi_lon) * 111.32 * math.cos(math.radians(aoi_lat))
-    dlat_km = (lat - aoi_lat) * 111.32
-    if math.hypot(dlon_km, dlat_km) > CASE_STUDY_RADIUS_KM * 1.15:
-        return None
-    return lat, lon, match.get("display_name", query)
+    return float(match["lat"]), float(match["lon"]), match.get("display_name", query)
 
 
 def fit_zoom(span_lon: float, px_width: int = 1000) -> int:
@@ -346,36 +348,33 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="rd-eyebrow">Region</div>', unsafe_allow_html=True)
-    region = st.selectbox("Region", REGIONS, label_visibility="collapsed")
-    is_calibrated = (region == "Kasarani")
-    if is_calibrated:
-        st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count</span>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown('<span class="rd-badge rd-badge-warn">Untested extrapolation — no ground truth</span>',
-                    unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow">Study Area</div>', unsafe_allow_html=True)
+    st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count (~700 structures)</span>',
+                unsafe_allow_html=True)
 
-    # Place search only makes sense where we screen for encroachment.
-    # Gatharaini and Motoine exist purely as training regions, so the
-    # search box is hidden for them. When the AOI expands later, swap
-    # this for a lookup of the active region's center/boundary.
-    if region == "Kasarani":
-        st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Find a place</div>',
-                    unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Jump to Area</div>', unsafe_allow_html=True)
+    if "pending_jump" in st.session_state:
+        st.session_state["map_center"] = st.session_state.pop("pending_jump")
+
+    area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
+                         label_visibility="collapsed")
+
+    if area_mode == "Named locality":
+        area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
+        st.session_state["map_center"] = KASARANI_AREAS[area_choice]
+        st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
+    else:
         query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
                               label_visibility="collapsed")
         if query:
-            result = geocode_place_osm(query)
+            result = geocode_place_osm(query, REGION)
             if result is None:
                 st.warning("No match found — try a more specific name.")
             else:
                 lat, lon, display_name = result
-                st.session_state["map_center"] = (region, lat, lon, 15)
+                st.session_state["pending_jump"] = (lat, lon)
                 st.caption(f"Found: {display_name}")
-        st.caption("Free via OpenStreetMap's Nominatim service — no API key required. "
-                   "Results are restricted to the Kasarani AOI; the training areas "
-                   "(Gatharaini, Motoine) are excluded.")
+        st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
 
     st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Screening Filters</div>', unsafe_allow_html=True)
     confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
@@ -412,6 +411,8 @@ with st.sidebar:
 
 # --------------------------------------------------------------------- compute
 
+region = REGION  # single fixed study area — kept as a local name so the
+                  # rest of this file (map, tabs) needs no further changes
 region_table = build_region_table(region)
 data_ready = region_table is not None
 
@@ -454,7 +455,7 @@ if not data_ready:
     st.stop()
 
 map_tab, compare_tab, model_tab, method_tab = st.tabs(
-    ["Detection map", "Compare regions", "Model performance", "Method & data"]
+    ["Detection map", "Compare areas", "Model performance", "Method & data"]
 )
 
 # ------------------------------------------------------------- tab 1: the map
@@ -474,16 +475,10 @@ with map_tab:
             unsafe_allow_html=True,
         )
 
-        # map_center is stored as (region, lat, lon, zoom) so a saved jump is
-        # only honoured while viewing that region — switching regions falls
-        # back to the region's default center/zoom.
-        saved_center = st.session_state.get("map_center")
-        if saved_center and saved_center[0] == region:
-            _, center_lat, center_lon, map_zoom = saved_center
-        else:
-            center_lat, center_lon = REGION_CENTERS[region][1], REGION_CENTERS[region][0]
-            map_zoom = 13
-        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=map_zoom,
+        center_lat, center_lon = st.session_state.get(
+            "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+        )
+        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
                           tiles=BASEMAPS[basemap_label], control_scale=True)
 
         aoi = region_aoi_wgs84(region)
@@ -538,8 +533,7 @@ with map_tab:
             ).add_to(fmap)
 
         folium.LayerControl(collapsed=False).add_to(fmap)
-        st_folium(fmap, height=480, use_container_width=True, returned_objects=[],
-                  key=f"main_map_{region}_{center_lat:.6f}_{center_lon:.6f}")
+        st_folium(fmap, height=480, use_container_width=True, returned_objects=[], key="main_map")
 
         st.markdown(
             f"""
@@ -593,52 +587,48 @@ with map_tab:
                            unsafe_allow_html=True)
             card_close()
 
-# --------------------------------------------------------- tab 2: compare regions
+# --------------------------------------------------------- tab 2: compare areas
 
 with compare_tab:
     card_open()
-    st.markdown('<div class="rd-card-title">Encroaching Structures by Region</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="rd-sub">Only Kasarani is calibrated against independent ground truth — '
-        "Gatharaini and Motoine reuse that same cutoff untested</div>",
+        f'<div class="rd-sub">Structures within {AREA_COMPARE_RADIUS_M}m of each named '
+        "locality's centre, at the current sidebar thresholds</div>",
         unsafe_allow_html=True,
     )
 
-    compare_rows = []
-    for r in REGIONS:
-        t = build_region_table(r)
-        if t is None:
-            continue
-        e = apply_filters(t, confidence_threshold, material_threshold, flag_distance_m)
-        compare_rows.append({"region": r, "encroaching": len(e), "screened": len(t),
-                             "calibrated": r == "Kasarani"})
+    transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
+    encroaching_metric_xy = np.array([
+        transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
+    ]) if len(encroaching) else np.empty((0, 2))
 
-    if compare_rows:
-        cdf = pd.DataFrame(compare_rows)
-        fig = go.Figure(go.Bar(
-            x=cdf["region"], y=cdf["encroaching"],
-            marker_color=[RED if c else AMBER for c in cdf["calibrated"]],
-            text=[f"{v:,}" for v in cdf["encroaching"]], textposition="outside",
-            hovertemplate="%{x}: %{y:,} encroaching<extra></extra>",
-        ))
-        fig.update_layout(**plotly_layout(height=320, showlegend=False,
-                                          yaxis=dict(gridcolor="#232b30", title=None),
-                                          xaxis=dict(title=None)))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-        st.markdown(
-            f'<div class="rd-legend-row">'
-            f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{RED};"></span>Calibrated (Kasarani)</div>'
-            f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{AMBER};"></span>Untested extrapolation</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    compare_rows = []
+    for area_name, (area_lat, area_lon) in KASARANI_AREAS.items():
+        ax, ay = transformer.transform(area_lon, area_lat)
+        if len(encroaching_metric_xy):
+            dists = np.hypot(encroaching_metric_xy[:, 0] - ax, encroaching_metric_xy[:, 1] - ay)
+            count = int((dists <= AREA_COMPARE_RADIUS_M).sum())
+        else:
+            count = 0
+        compare_rows.append({"locality": area_name, "encroaching_nearby": count})
+
+    cdf = pd.DataFrame(compare_rows).sort_values("encroaching_nearby", ascending=False)
+    fig = go.Figure(go.Bar(
+        x=cdf["locality"], y=cdf["encroaching_nearby"], marker_color=RED,
+        text=[f"{v:,}" for v in cdf["encroaching_nearby"]], textposition="outside",
+        hovertemplate="%{x}: %{y:,} encroaching nearby<extra></extra>",
+    ))
+    fig.update_layout(**plotly_layout(height=320, showlegend=False,
+                                      yaxis=dict(gridcolor="#232b30", title=None),
+                                      xaxis=dict(title=None)))
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     card_close()
 
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
     card_open()
-    st.markdown('<div class="rd-card-title">Region Totals</div>', unsafe_allow_html=True)
-    if compare_rows:
-        st.dataframe(pd.DataFrame(compare_rows), hide_index=True, width="stretch")
+    st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
+    st.dataframe(cdf, hide_index=True, width="stretch")
     card_close()
 
 # ------------------------------------------------------- tab 3: model performance
@@ -790,23 +780,25 @@ with method_tab:
         card_open()
         st.markdown('<div class="rd-card-title">Artifacts</div>', unsafe_allow_html=True)
         rows = []
-        for r in REGIONS:
-            for path, what in [
-                (buildings_csv(r), f"{r} — detected structures"),
-                (encroaching_csv(r), f"{r} — encroaching structures"),
-                (rivers_geojson(r), f"{r} — river lines"),
-                (riparian_buffer_geojson(r), f"{r} — riparian buffer"),
-            ]:
-                exists = path.exists()
-                rows.append({
-                    "File": path.name, "Holds": what,
-                    "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
-                    "Status": "present" if exists else "missing",
-                })
+        for path, what in [
+            (buildings_csv(REGION), "Detected structures"),
+            (encroaching_csv(REGION), "Encroaching structures"),
+            (rivers_geojson(REGION), "River lines"),
+            (riparian_buffer_geojson(REGION), "Riparian buffer"),
+            (feature_table_csv(REGION), "Labelled feature table"),
+        ]:
+            exists = path.exists()
+            rows.append({
+                "File": path.name, "Holds": what,
+                "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
+                "Status": "present" if exists else "missing",
+            })
         rows.append({
-            "File": MODEL_PATH.name, "Holds": "shared Random Forest",
+            "File": MODEL_PATH.name, "Holds": "Shared Random Forest (trained on Kasarani, "
+                                                "Gatharaini and Motoine combined)",
             "Size": f"{MODEL_PATH.stat().st_size / 1e6:.1f} MB" if MODEL_PATH.exists() else "—",
             "Status": "present" if MODEL_PATH.exists() else "missing",
         })
+
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=320)
         card_close()
