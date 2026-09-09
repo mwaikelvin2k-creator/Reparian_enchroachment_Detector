@@ -3,7 +3,7 @@
 #  label_buildings_by_river_distance.py, train_rf.py,
 #  kasarani_rf_pipeline.ipynb).
 # Not needed just to run the Streamlit dashboard - see requirements.txt for that.
--r requirements.txt
+#-r requirements.txt
 #osmnx
 earthengine-api
 geemap
