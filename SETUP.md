@@ -6,9 +6,9 @@ Step-by-step instructions for getting this project running on your own machine, 
 
 Three separate things live in this repo:
 
-1. **The Streamlit dashboard** (`app.py`) — reads the *already-generated* data files in `Preprocessing/` and lets you explore them interactively. This is what most people want, and it's quick to set up (no external accounts needed).
-2. **The data-prep notebook** (`Preprocessing/Cleaning.ipynb`) — the pipeline that *produced* those files from OpenStreetMap and Google Earth Engine. You only need this if you want to regenerate the data (e.g. for a different area, or a different buffer distance baked into the source files). It needs a free Google Earth Engine account and a heavier set of geospatial packages.
-3. **The Random Forest training pipeline** (`train_rf.py`, notebook form in `kasarani_rf_pipeline.ipynb`) — extracts Sentinel-2 spectral features per building, auto-labels them by distance to the river, trains the Phase 1 classifier, and writes the artifacts the dashboard's model layers read. Its outputs (`models/`, `data/processed/`) are gitignored build products, so a fresh clone won't have them until you run it.
+1. **The Streamlit dashboard** (`app.py`) — reads the *already-generated* data files in `processed/` and lets you explore them interactively. This is what most people want, and it's quick to set up (no external accounts needed).
+2. **The data-prep notebook** (`preprocessing.ipynb`) — the pipeline that *produced* those files from OpenStreetMap and Google Earth Engine. You only need this if you want to regenerate the data (e.g. for a different area, or a different buffer distance baked into the source files). It needs a free Google Earth Engine account and a heavier set of geospatial packages.
+3. **The Random Forest training pipeline**  — extracts Sentinel-2 spectral features per building, auto-labels them by distance to the river, trains the Phase 1 classifier, and writes the artifacts the dashboard's model layers read. Its outputs (`processed/`, `rf_baseline.joblib`) are gitignored build products, so a fresh clone won't have them until you run it.
 
 Section 1–4 below get the dashboard running. Section 5 covers regenerating the source data, and section 6 covers training the model.
 
