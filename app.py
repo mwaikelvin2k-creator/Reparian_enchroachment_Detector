@@ -177,17 +177,20 @@ def apply_filters(table: pd.DataFrame, confidence_threshold: float,
 
 
 @st.cache_data(show_spinner="Searching OpenStreetMap...", ttl=3600)
-def geocode_place_osm(query: str, region: str) -> tuple[float, float, str] | None:
-    """Free-text place lookup via OSM's Nominatim, biased toward the
-    selected region so a search stays relevant to what's on screen."""
-    lon, lat = REGION_CENTERS[region]
+def geocode_place_osm(query: str) -> tuple[float, float, str] | None:
+    """Free-text place lookup via OSM's Nominatim, hard-restricted to the
+    Kasarani AOI. Gatharaini and Motoine were used to train the model, so
+    their areas are excluded — anything Nominatim returns outside the
+    Kasarani 3km circle is rejected."""
+    aoi_lon, aoi_lat = REGION_CENTERS["Kasarani"]
     pad = (CASE_STUDY_RADIUS_KM / 111.0) * 1.5
     try:
         response = requests.get(
             "https://nominatim.openstreetmap.org/search",
             params={
-                "q": f"{query}, Nairobi, Kenya", "format": "json", "limit": 1,
-                "viewbox": f"{lon - pad},{lat - pad},{lon + pad},{lat + pad}", "bounded": 1,
+                "q": f"{query}, Kasarani, Nairobi, Kenya", "format": "json", "limit": 1,
+                "viewbox": f"{aoi_lon - pad},{aoi_lat - pad},{aoi_lon + pad},{aoi_lat + pad}",
+                "bounded": 1,
             },
             headers={"User-Agent": "riparian-encroachment-detector/1.0"},
             timeout=8,
@@ -199,7 +202,14 @@ def geocode_place_osm(query: str, region: str) -> tuple[float, float, str] | Non
     if not results:
         return None
     match = results[0]
-    return float(match["lat"]), float(match["lon"]), match.get("display_name", query)
+    lat, lon = float(match["lat"]), float(match["lon"])
+    # The Nominatim viewbox is a rectangle, so a corner could still land in
+    # Gatharaini/Motoine — enforce the actual circular AOI with a small margin.
+    dlon_km = (lon - aoi_lon) * 111.32 * math.cos(math.radians(aoi_lat))
+    dlat_km = (lat - aoi_lat) * 111.32
+    if math.hypot(dlon_km, dlat_km) > CASE_STUDY_RADIUS_KM * 1.15:
+        return None
+    return lat, lon, match.get("display_name", query)
 
 
 def fit_zoom(span_lon: float, px_width: int = 1000) -> int:
@@ -346,20 +356,26 @@ with st.sidebar:
         st.markdown('<span class="rd-badge rd-badge-warn">Untested extrapolation — no ground truth</span>',
                     unsafe_allow_html=True)
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Find a place</div>', unsafe_allow_html=True)
-    if "pending_jump" in st.session_state:
-        st.session_state["map_center"] = st.session_state.pop("pending_jump")
-    query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
-                          label_visibility="collapsed")
-    if query:
-        result = geocode_place_osm(query, region)
-        if result is None:
-            st.warning("No match found — try a more specific name.")
-        else:
-            lat, lon, display_name = result
-            st.session_state["pending_jump"] = (lat, lon)
-            st.caption(f"Found: {display_name}")
-    st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
+    # Place search only makes sense where we screen for encroachment.
+    # Gatharaini and Motoine exist purely as training regions, so the
+    # search box is hidden for them. When the AOI expands later, swap
+    # this for a lookup of the active region's center/boundary.
+    if region == "Kasarani":
+        st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Find a place</div>',
+                    unsafe_allow_html=True)
+        query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
+                              label_visibility="collapsed")
+        if query:
+            result = geocode_place_osm(query)
+            if result is None:
+                st.warning("No match found — try a more specific name.")
+            else:
+                lat, lon, display_name = result
+                st.session_state["map_center"] = (region, lat, lon, 15)
+                st.caption(f"Found: {display_name}")
+        st.caption("Free via OpenStreetMap's Nominatim service — no API key required. "
+                   "Results are restricted to the Kasarani AOI; the training areas "
+                   "(Gatharaini, Motoine) are excluded.")
 
     st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Screening Filters</div>', unsafe_allow_html=True)
     confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
@@ -458,10 +474,16 @@ with map_tab:
             unsafe_allow_html=True,
         )
 
-        center_lat, center_lon = st.session_state.get(
-            "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
-        )
-        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
+        # map_center is stored as (region, lat, lon, zoom) so a saved jump is
+        # only honoured while viewing that region — switching regions falls
+        # back to the region's default center/zoom.
+        saved_center = st.session_state.get("map_center")
+        if saved_center and saved_center[0] == region:
+            _, center_lat, center_lon, map_zoom = saved_center
+        else:
+            center_lat, center_lon = REGION_CENTERS[region][1], REGION_CENTERS[region][0]
+            map_zoom = 13
+        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=map_zoom,
                           tiles=BASEMAPS[basemap_label], control_scale=True)
 
         aoi = region_aoi_wgs84(region)
@@ -516,7 +538,8 @@ with map_tab:
             ).add_to(fmap)
 
         folium.LayerControl(collapsed=False).add_to(fmap)
-        st_folium(fmap, height=480, use_container_width=True, returned_objects=[], key="main_map")
+        st_folium(fmap, height=480, use_container_width=True, returned_objects=[],
+                  key=f"main_map_{region}_{center_lat:.6f}_{center_lon:.6f}")
 
         st.markdown(
             f"""
