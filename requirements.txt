@@ -4,11 +4,11 @@
 #  kasarani_rf_pipeline.ipynb).
 # Not needed just to run the Streamlit dashboard - see requirements.txt for that.
 -r requirements.txt
-osmnx
+#osmnx
 earthengine-api
 geemap
-rasterio
-rasterstats
+#rasterio
+#rasterstats
 scikit-learn
 joblib
 matplotlib
