@@ -606,8 +606,9 @@ with compare_tab:
     with card():
         st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="rd-sub">Each encroaching structure assigned to its nearest named '
-            "locality centre, at the current sidebar thresholds</div>",
+            f'<div class="rd-sub">All {len(encroaching):,} structures flagged as encroaching '
+            f"(within {flag_distance_m}m of a river) — grouped by whichever named locality "
+            "they're closest to</div>",
             unsafe_allow_html=True,
         )
 
