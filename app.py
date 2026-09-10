@@ -24,14 +24,18 @@ SUMMARY_PATH = DATA_DIR / "pipeline_summary.json"
 METRIC_CRS = "EPSG:32737"
 WGS84 = "EPSG:4326"
 
-REGION = "Kasarani"
+REGIONS = ["Kasarani", "Gatharaini", "Motoine"]
 # Matches 01_preprocessing.ipynb / 02_modelling.ipynb exactly — the fixed-radius
-# circle Kasarani's AOI is built from. Gatharaini and Motoine only contributed
-# training data to the shared model; they were never intended as end-user areas.
-REGION_CENTERS = {"Kasarani": (36.8969, -1.2296)}
+# circle each region's AOI is built from.
+REGION_CENTERS = {
+    "Kasarani": (36.8969, -1.2296),
+    "Gatharaini": (36.95952127354356, -1.2252700532171976),
+    "Motoine": (36.74237847877641, -1.3113205815273903),
+}
 CASE_STUDY_RADIUS_KM = 3
 
-# Named localities within the Kasarani AOI, for map navigation. Best-effort
+# Named localities within Kasarani only, for map navigation — no verified
+# locality coordinates exist for Gatharaini or Motoine yet. Best-effort
 # approximations — worth spot-checking against OSM before treating as exact.
 KASARANI_AREAS = {
     "Kasarani town centre": (-1.2295, 36.8908),
@@ -43,6 +47,7 @@ KASARANI_AREAS = {
     "Zimmerman": (-1.2080, 36.8890),
     "Githurai 44": (-1.1990, 36.9020),
     "Kahawa West": (-1.1890, 36.9150),
+
 }
 AREA_COMPARE_RADIUS_M = 600
 FEATURE_COLS = ["B2", "B3", "B4", "B8", "B11", "B12", "NDVI", "NDBI"]
@@ -261,9 +266,9 @@ def inject_css() -> None:
         [data-testid="stSidebar"] { background: var(--bg-panel); border-right: 1px solid var(--border); }
         [data-testid="stSidebar"] .stMarkdown p { color: var(--text-secondary); }
         [data-testid="stHeader"] { background: transparent; }
-        .block-container { padding-top: 1.4rem; }
+        .block-container { padding-top: 0.8rem; }
         .rd-eyebrow{ text-transform:uppercase; letter-spacing:.08em; font-size:11px; color:var(--text-tertiary); font-weight:600; margin-bottom:6px; }
-        .rd-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; height:100%; }
+        .rd-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:12px 16px; height:100%; }
         .rd-card-title{ font-size:12px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--text-primary); }
         .rd-sub{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-tertiary); margin-top:2px; line-height:1.5; }
         .rd-metric-big{ font-family:'IBM Plex Mono',monospace; font-size:38px; font-weight:700; color:var(--accent-amber); line-height:1; }
@@ -275,7 +280,7 @@ def inject_css() -> None:
         .rd-legend-row{ display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; }
         .rd-legend-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); }
         .rd-swatch{ width:10px; height:10px; border-radius:50%; display:inline-block; }
-        .rd-header{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px 18px; border-bottom:1px solid var(--border); margin-bottom:18px; }
+        .rd-header{ display:flex; align-items:center; justify-content:space-between; padding:8px 4px 10px; border-bottom:1px solid var(--border); margin-bottom:10px; }
         .rd-title{ font-size:18px; font-weight:700; letter-spacing:.02em; color:var(--text-primary); }
         .rd-subtitle{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-tertiary); letter-spacing:.03em; }
         .rd-note{ border-left:2px solid var(--accent-amber); background:rgba(242,181,68,0.06); padding:12px 14px; border-radius:0 8px 8px 0; font-size:12.5px; color:var(--text-secondary); line-height:1.65; }
@@ -348,53 +353,49 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="rd-eyebrow">Study Area</div>', unsafe_allow_html=True)
-    st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count (~700 structures)</span>',
-                unsafe_allow_html=True)
-
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Jump to Area</div>', unsafe_allow_html=True)
-    if "pending_jump" in st.session_state:
-        st.session_state["map_center"] = st.session_state.pop("pending_jump")
-
-    area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
-                         label_visibility="collapsed")
-
-    if area_mode == "Named locality":
-        area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
-        st.session_state["map_center"] = KASARANI_AREAS[area_choice]
-        st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
+    st.markdown('<div class="rd-eyebrow">Region</div>', unsafe_allow_html=True)
+    region = st.selectbox("Region", REGIONS, label_visibility="collapsed")
+    if region == "Kasarani":
+        st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count (~700)</span>',
+                    unsafe_allow_html=True)
     else:
-        query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
-                              label_visibility="collapsed")
-        if query:
-            result = geocode_place_osm(query, REGION)
-            if result is None:
-                st.warning("No match found — try a more specific name.")
-            else:
-                lat, lon, display_name = result
-                st.session_state["pending_jump"] = (lat, lon)
-                st.caption(f"Found: {display_name}")
-        st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
+        st.markdown('<span class="rd-badge rd-badge-warn">Untested extrapolation — no ground truth</span>',
+                    unsafe_allow_html=True)
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Screening Filters</div>', unsafe_allow_html=True)
-    confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
-                                     DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
-    material_threshold = st.slider("RF built-up probability ≥", 0.0, 0.5,
-                                   DEFAULT_MATERIAL_OVERLAP_THRESHOLD, 0.01)
+    st.markdown('<div class="rd-eyebrow" style="margin-top:12px;">Jump to Area</div>', unsafe_allow_html=True)
+    if region == "Kasarani":
+        area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()), label_visibility="collapsed")
+        st.session_state["map_center"] = KASARANI_AREAS[area_choice]
+    else:
+        st.session_state["map_center"] = (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+        st.caption("No named localities catalogued for this region yet — search below, "
+                   "or use the map's own pan/zoom.")
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Flagging Distance</div>', unsafe_allow_html=True)
+    query = st.text_input("Or search a place", placeholder="Search OpenStreetMap...")
+    if query:
+        result = geocode_place_osm(query, region)
+        if result is None:
+            st.warning("No match found — try a more specific name.")
+        else:
+            lat, lon, display_name = result
+            st.session_state["map_center"] = (lat, lon)
+            st.caption(f"Found: {display_name}")
+
+    # Confidence and material-overlap thresholds are applied at their pipeline
+    # defaults rather than exposed as sliders — the values themselves are
+    # still visible on hover over each structure on the map.
+    confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
+    material_threshold = DEFAULT_MATERIAL_OVERLAP_THRESHOLD
+
+    st.markdown('<div class="rd-eyebrow" style="margin-top:12px;">Flagging Distance</div>', unsafe_allow_html=True)
     calibrated_distance_default = int(summary["calibrated_distance_m"]) if summary else 16
     flag_distance_m = st.slider("Flag within (m) of river", 5, 60, calibrated_distance_default, 1)
-    st.caption(
-        f"Calibrated at {calibrated_distance_default}m against Kasarani's Pamoja Trust field "
-        "survey (~700 structures). The same cutoff is applied to Gatharaini and Motoine "
-        "untested — there is no independent count for either yet."
-    )
+    st.caption(f"{calibrated_distance_default}m is calibrated against the Pamoja Trust field survey.")
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Basemap</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow" style="margin-top:12px;">Basemap</div>', unsafe_allow_html=True)
     basemap_label = st.selectbox("Basemap", list(BASEMAPS.keys()), label_visibility="collapsed")
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Model</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow" style="margin-top:12px;">Model</div>', unsafe_allow_html=True)
     if model_ready:
         st.markdown(
             f"""
@@ -411,8 +412,6 @@ with st.sidebar:
 
 # --------------------------------------------------------------------- compute
 
-region = REGION  # single fixed study area — kept as a local name so the
-                  # rest of this file (map, tabs) needs no further changes
 region_table = build_region_table(region)
 data_ready = region_table is not None
 
@@ -455,13 +454,13 @@ if not data_ready:
     st.stop()
 
 map_tab, compare_tab, model_tab, method_tab = st.tabs(
-    ["Detection map", "Compare areas", "Model performance", "Method & data"]
+    ["Detection map", "Compare regions", "Model performance", "Method & data"]
 )
 
 # ------------------------------------------------------------- tab 1: the map
 
 with map_tab:
-    map_col, side_col = st.columns([2.1, 1], gap="medium")
+    map_col, side_col = st.columns([3.2, 1], gap="medium")
 
     with map_col:
         card_open("padding:0;overflow:hidden;")
@@ -533,7 +532,7 @@ with map_tab:
             ).add_to(fmap)
 
         folium.LayerControl(collapsed=False).add_to(fmap)
-        st_folium(fmap, height=480, use_container_width=True, returned_objects=[], key="main_map")
+        st_folium(fmap, height=560, use_container_width=True, returned_objects=[], key="main_map")
 
         st.markdown(
             f"""
@@ -559,7 +558,7 @@ with map_tab:
         )
         card_close()
 
-        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
         card_open()
         st.markdown('<div class="rd-card-title">Screening Funnel</div>', unsafe_allow_html=True)
@@ -575,60 +574,52 @@ with map_tab:
             )
         card_close()
 
-        if summary and region in summary:
-            st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-            card_open()
-            st.markdown('<div class="rd-card-title">As Last Reported</div>', unsafe_allow_html=True)
-            st.markdown('<div class="rd-sub">From pipeline_summary.json, at the notebook\'s '
-                        'default thresholds</div>', unsafe_allow_html=True)
-            reported = summary[region]
-            for k, v in reported.items():
-                st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
-                           unsafe_allow_html=True)
-            card_close()
-
-# --------------------------------------------------------- tab 2: compare areas
+# --------------------------------------------------------- tab 2: compare regions
 
 with compare_tab:
     card_open()
-    st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rd-card-title">Encroaching Structures by Region</div>', unsafe_allow_html=True)
     st.markdown(
-        f'<div class="rd-sub">Structures within {AREA_COMPARE_RADIUS_M}m of each named '
-        "locality's centre, at the current sidebar thresholds</div>",
+        '<div class="rd-sub">Only Kasarani is calibrated against independent ground truth — '
+        "Gatharaini and Motoine reuse that same cutoff untested</div>",
         unsafe_allow_html=True,
     )
 
-    transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
-    encroaching_metric_xy = np.array([
-        transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
-    ]) if len(encroaching) else np.empty((0, 2))
-
     compare_rows = []
-    for area_name, (area_lat, area_lon) in KASARANI_AREAS.items():
-        ax, ay = transformer.transform(area_lon, area_lat)
-        if len(encroaching_metric_xy):
-            dists = np.hypot(encroaching_metric_xy[:, 0] - ax, encroaching_metric_xy[:, 1] - ay)
-            count = int((dists <= AREA_COMPARE_RADIUS_M).sum())
-        else:
-            count = 0
-        compare_rows.append({"locality": area_name, "encroaching_nearby": count})
+    for r in REGIONS:
+        t = build_region_table(r)
+        if t is None:
+            continue
+        e = apply_filters(t, confidence_threshold, material_threshold, flag_distance_m)
+        compare_rows.append({"region": r, "encroaching": len(e), "screened": len(t),
+                             "calibrated": r == "Kasarani"})
 
-    cdf = pd.DataFrame(compare_rows).sort_values("encroaching_nearby", ascending=False)
-    fig = go.Figure(go.Bar(
-        x=cdf["locality"], y=cdf["encroaching_nearby"], marker_color=RED,
-        text=[f"{v:,}" for v in cdf["encroaching_nearby"]], textposition="outside",
-        hovertemplate="%{x}: %{y:,} encroaching nearby<extra></extra>",
-    ))
-    fig.update_layout(**plotly_layout(height=320, showlegend=False,
-                                      yaxis=dict(gridcolor="#232b30", title=None),
-                                      xaxis=dict(title=None)))
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+    if compare_rows:
+        cdf = pd.DataFrame(compare_rows)
+        fig = go.Figure(go.Bar(
+            x=cdf["region"], y=cdf["encroaching"],
+            marker_color=[RED if c else AMBER for c in cdf["calibrated"]],
+            text=[f"{v:,}" for v in cdf["encroaching"]], textposition="outside",
+            hovertemplate="%{x}: %{y:,} encroaching<extra></extra>",
+        ))
+        fig.update_layout(**plotly_layout(height=320, showlegend=False,
+                                          yaxis=dict(gridcolor="#232b30", title=None),
+                                          xaxis=dict(title=None)))
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.markdown(
+            f'<div class="rd-legend-row">'
+            f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{RED};"></span>Calibrated (Kasarani)</div>'
+            f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{AMBER};"></span>Untested extrapolation</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     card_close()
 
-    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
     card_open()
-    st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
-    st.dataframe(cdf, hide_index=True, width="stretch")
+    st.markdown('<div class="rd-card-title">Region Totals</div>', unsafe_allow_html=True)
+    if compare_rows:
+        st.dataframe(pd.DataFrame(compare_rows), hide_index=True, width="stretch")
     card_close()
 
 # ------------------------------------------------------- tab 3: model performance
@@ -660,7 +651,7 @@ with model_tab:
         )
         card_close()
 
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
         st.markdown(f'<div class="rd-eyebrow">Live evaluation &middot; {region} feature table</div>',
                     unsafe_allow_html=True)
 
@@ -688,7 +679,7 @@ with model_tab:
             with c4:
                 metric_card("F1 (built-up)", f"{report['built-up']['f1-score']:.3f}")
 
-            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
             card_open()
             st.markdown('<div class="rd-card-title">Confusion Matrix</div>', unsafe_allow_html=True)
             counts = np.array(eval_result["confusion_matrix"])
@@ -709,7 +700,7 @@ with model_tab:
             st.plotly_chart(cm_fig, width="stretch", config={"displayModeBar": False})
             card_close()
 
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
         card_open()
         st.markdown('<div class="rd-card-title">Feature Importance</div>', unsafe_allow_html=True)
         imp = pd.Series(dict(zip(FEATURE_COLS, model.feature_importances_))).sort_values()
@@ -724,7 +715,7 @@ with model_tab:
         st.plotly_chart(imp_fig, width="stretch", config={"displayModeBar": False})
         card_close()
 
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
             <div class="rd-note">
@@ -772,7 +763,7 @@ with method_tab:
         )
         card_close()
 
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
         if summary and "note" in summary:
             st.markdown(f'<div class="rd-note">{summary["note"]}</div>', unsafe_allow_html=True)
 
@@ -780,19 +771,19 @@ with method_tab:
         card_open()
         st.markdown('<div class="rd-card-title">Artifacts</div>', unsafe_allow_html=True)
         rows = []
-        for path, what in [
-            (buildings_csv(REGION), "Detected structures"),
-            (encroaching_csv(REGION), "Encroaching structures"),
-            (rivers_geojson(REGION), "River lines"),
-            (riparian_buffer_geojson(REGION), "Riparian buffer"),
-            (feature_table_csv(REGION), "Labelled feature table"),
-        ]:
-            exists = path.exists()
-            rows.append({
-                "File": path.name, "Holds": what,
-                "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
-                "Status": "present" if exists else "missing",
-            })
+        for r in REGIONS:
+            for path, what in [
+                (buildings_csv(r), f"{r} — detected structures"),
+                (encroaching_csv(r), f"{r} — encroaching structures"),
+                (rivers_geojson(r), f"{r} — river lines"),
+                (riparian_buffer_geojson(r), f"{r} — riparian buffer"),
+            ]:
+                exists = path.exists()
+                rows.append({
+                    "File": path.name, "Holds": what,
+                    "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
+                    "Status": "present" if exists else "missing",
+                })
         rows.append({
             "File": MODEL_PATH.name, "Holds": "Shared Random Forest (trained on Kasarani, "
                                                 "Gatharaini and Motoine combined)",
