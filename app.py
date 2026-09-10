@@ -45,7 +45,6 @@ KASARANI_AREAS = {
     "Githurai 44": (-1.1990, 36.9020),
     "Kahawa West": (-1.1890, 36.9150),
 }
-AREA_COMPARE_RADIUS_M = 600
 FEATURE_COLS = ["B2", "B3", "B4", "B8", "B11", "B12", "NDVI", "NDBI"]
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
 DEFAULT_MATERIAL_OVERLAP_THRESHOLD = 0.05
@@ -607,8 +606,8 @@ with compare_tab:
     with card():
         st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
         st.markdown(
-            f'<div class="rd-sub">Structures within {AREA_COMPARE_RADIUS_M}m of each named '
-            "locality's centre, at the current sidebar thresholds</div>",
+            '<div class="rd-sub">Each encroaching structure assigned to its nearest named '
+            "locality centre, at the current sidebar thresholds</div>",
             unsafe_allow_html=True,
         )
 
@@ -617,26 +616,46 @@ with compare_tab:
             transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
         ]) if len(encroaching) else np.empty((0, 2))
 
-        compare_rows = []
-        for area_name, (area_lat, area_lon) in KASARANI_AREAS.items():
-            ax, ay = transformer.transform(area_lon, area_lat)
-            if len(encroaching_metric_xy):
-                dists = np.hypot(encroaching_metric_xy[:, 0] - ax, encroaching_metric_xy[:, 1] - ay)
-                nearby_count = int((dists <= AREA_COMPARE_RADIUS_M).sum())
-            else:
-                nearby_count = 0
-            compare_rows.append({"locality": area_name, "encroaching_nearby": nearby_count})
+        locality_names = list(KASARANI_AREAS.keys())
+        locality_xy = np.array([
+            transformer.transform(area_lon, area_lat) for area_lat, area_lon in KASARANI_AREAS.values()
+        ])
 
-        cdf = pd.DataFrame(compare_rows).sort_values("encroaching_nearby", ascending=False)
+        if len(encroaching_metric_xy):
+            # distance from every encroaching structure to every locality centre, then
+            # assign each structure to whichever centre is closest — a fixed search
+            # radius (the previous approach) either missed structures sitting between
+            # localities or double-counted ones near two centres at once. Nearest-centre
+            # assignment guarantees every structure is counted exactly once.
+            diffs = encroaching_metric_xy[:, None, :] - locality_xy[None, :, :]
+            dists = np.hypot(diffs[..., 0], diffs[..., 1])
+            nearest_idx = dists.argmin(axis=1)
+            counts = pd.Series(nearest_idx).value_counts()
+        else:
+            counts = pd.Series(dtype=int)
+
+        compare_rows = [
+            {"locality": name, "encroaching_count": int(counts.get(i, 0))}
+            for i, name in enumerate(locality_names)
+        ]
+
+        cdf = pd.DataFrame(compare_rows).sort_values("encroaching_count", ascending=False)
         fig = go.Figure(go.Bar(
-            x=cdf["locality"], y=cdf["encroaching_nearby"], marker_color=RED,
-            text=[f"{v:,}" for v in cdf["encroaching_nearby"]], textposition="outside",
-            hovertemplate="%{x}: %{y:,} encroaching nearby<extra></extra>",
+            x=cdf["locality"], y=cdf["encroaching_count"], marker_color=RED,
+            text=[f"{v:,}" for v in cdf["encroaching_count"]], textposition="outside",
+            hovertemplate="%{x}: %{y:,} encroaching structures (nearest)<extra></extra>",
         ))
         fig.update_layout(**plotly_layout(height=320, showlegend=False,
                                           yaxis=dict(gridcolor="#232b30", title=None),
                                           xaxis=dict(title=None)))
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.markdown(
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">'
+            "Locality centres are best-effort approximate coordinates, not official "
+            "administrative boundaries — treat this as a directional triage view, not a "
+            "precise ward-by-ward count.</div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
     with card():
