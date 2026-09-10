@@ -1,25 +1,15 @@
-# Extra dependencies for the data + modeling pipeline
-# (Preprocessing/Cleaning.ipynb, build_building_features.py,
-#  label_buildings_by_river_distance.py, train_rf.py,
-#  kasarani_rf_pipeline.ipynb).
-# Not needed just to run the Streamlit dashboard - see requirements.txt for that.
-#-r requirements.txt
-#osmnx
-earthengine-api
-geemap
-#rasterio
-#rasterstats
-scikit-learn
-joblib
-matplotlib
-jupyterlab
-streamlit
-geopandas
-folium
-streamlit-folium
-shapely
-pyproj
-pyogrio
-pandas
-numpy
-plotly
+# Dependencies to run the Streamlit dashboard (app.py) only.
+# For the data/modelling pipeline notebooks, see requirements-pipeline.txt.
+streamlit==1.63.0
+geopandas==1.1.4
+folium==0.20.0
+streamlit-folium==0.27.4
+shapely==2.1.2
+pyproj==3.8.0
+pyogrio==0.13.0
+pandas==3.0.5
+numpy==2.5.3
+plotly==7.0.0
+scikit-learn==1.9.0
+joblib==1.6.0
+requests==2.34.2

@@ -1,0 +1,11 @@
+# Extra dependencies for the data + modelling pipeline notebooks
+# (01_preprocessing.ipynb, 02_modelling.ipynb, 03_fusion_and_report.ipynb).
+# Not needed to run the Streamlit dashboard - see requirements.txt for that.
+# Install both together with: pip install -r requirements.txt -r requirements-notebook.txt
+osmnx
+earthengine-api
+geemap
+rasterio
+rasterstats
+matplotlib
+jupyterlab
