@@ -76,10 +76,6 @@ def buildings_csv(region: str) -> Path:
     return DATA_DIR / f"{region.lower()}_buildings.csv"
 
 
-def encroaching_csv(region: str) -> Path:
-    return DATA_DIR / f"{region.lower()}_encroaching_buildings.csv"
-
-
 def riparian_buffer_geojson(region: str) -> Path:
     return DATA_DIR / f"{region.lower()}_riparian_buffer.geojson"
 
@@ -425,7 +421,7 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     else:
-        st.caption("rf_baseline.joblib not found — run 02_modelling.ipynb.")
+        st.caption("Model not available.")
 
 # --------------------------------------------------------------------- compute
 
@@ -464,24 +460,56 @@ if not data_ready:
           <b>No data found for {region}.</b> Looking for
           <span class="mono">{buildings_csv(region).relative_to(ROOT)}</span> and
           <span class="mono">{rivers_geojson(region).relative_to(ROOT)}</span>.
-          Run <span class="mono">01_preprocessing.ipynb</span> then
-          <span class="mono">02_modelling.ipynb</span> to generate them.
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.stop()
 
-map_tab, compare_tab, model_tab, method_tab = st.tabs(
-    ["Detection map", "Compare areas", "Model performance", "Method & data"]
-)
+with st.sidebar:
+    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Results</div>', unsafe_allow_html=True)
+
+    with card():
+        st.markdown('<div class="rd-metric-label">Encroaching Structures</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rd-metric-big">{len(encroaching):,}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">'
+            f'of {len(region_table):,} candidate structures in {region}</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+
+    with card():
+        st.markdown('<div class="rd-card-title">Screening Funnel</div>', unsafe_allow_html=True)
+        funnel = [
+            ("Detected (Open Buildings)", len(region_table)),
+            ("Passed confidence + material filter", len(passed_filter)),
+            (f"Within {flag_distance_m}m of river", len(encroaching)),
+        ]
+        for label, value in funnel:
+            st.markdown(
+                f'<div class="rd-kv"><span>{label}</span><span>{value:,}</span></div>',
+                unsafe_allow_html=True,
+            )
+
+    if summary and region in summary:
+        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+        with card():
+            st.markdown('<div class="rd-card-title">As Last Reported</div>', unsafe_allow_html=True)
+            st.markdown('<div class="rd-sub">From the last full run, at its original '
+                        'screening settings</div>', unsafe_allow_html=True)
+            reported = summary[region]
+            for k, v in reported.items():
+                st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
+                           unsafe_allow_html=True)
+
+map_tab, compare_tab = st.tabs(["Detection map", "Compare areas"])
 
 # ------------------------------------------------------------- tab 1: the map
 
 with map_tab:
-    map_col, side_col = st.columns([2.1, 1], gap="medium")
-
-    with map_col, card("padding:0;overflow:hidden;"):
+    with card("padding:0;overflow:hidden;"):
         st.markdown(
             f"""
             <div style="padding:14px 18px;border-bottom:1px solid var(--border-soft);">
@@ -496,7 +524,8 @@ with map_tab:
             "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
         )
         fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
-                          tiles=BASEMAPS[basemap_label], control_scale=True)
+                          tiles=BASEMAPS[basemap_label], control_scale=True,
+                          scrollWheelZoom=False)
 
         aoi = region_aoi_wgs84(region)
         folium.GeoJson(
@@ -550,7 +579,7 @@ with map_tab:
             ).add_to(fmap)
 
         folium.LayerControl(collapsed=True).add_to(fmap)
-        st_folium(fmap, height=480, use_container_width=True, returned_objects=[], key="main_map")
+        st_folium(fmap, height=640, use_container_width=True, returned_objects=[], key="main_map")
 
         st.markdown(
             f"""
@@ -564,41 +593,108 @@ with map_tab:
             unsafe_allow_html=True,
         )
 
-    with side_col:
-        with card():
-            st.markdown('<div class="rd-metric-label">Encroaching Structures</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="rd-metric-big">{len(encroaching):,}</div>', unsafe_allow_html=True)
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+    with st.expander("Model performance details", expanded=False):
+        if not model_ready:
             st.markdown(
-                f'<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">'
-                f'of {len(region_table):,} candidate structures in {region}</div>',
+                f"""
+                <div class="rd-note">
+                  <b>No trained model found.</b> Looking for
+                  <span class="mono">{MODEL_PATH.relative_to(ROOT)}</span>.
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-
-        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-
-        with card():
-            st.markdown('<div class="rd-card-title">Screening Funnel</div>', unsafe_allow_html=True)
-            funnel = [
-                ("Detected (Open Buildings)", len(region_table)),
-                ("Passed confidence + material filter", len(passed_filter)),
-                (f"Within {flag_distance_m}m of river", len(encroaching)),
-            ]
-            for label, value in funnel:
+        else:
+            with card():
+                st.markdown('<div class="rd-card-title">Model Card</div>', unsafe_allow_html=True)
+                kv = [
+                    ("Estimator", f"RandomForestClassifier ({model.n_estimators} trees)"),
+                    ("Features", ", ".join(FEATURE_COLS)),
+                    ("Label", "builtup — ESA WorldCover ground truth"),
+                    ("Training scope", "All three regions combined, trained once"),
+                ]
                 st.markdown(
-                    f'<div class="rd-kv"><span>{label}</span><span>{value:,}</span></div>',
+                    "".join(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>' for k, v in kv),
                     unsafe_allow_html=True,
                 )
 
-        if summary and region in summary:
-            st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+            st.markdown(f'<div class="rd-eyebrow">Live evaluation &middot; {region} feature table</div>',
+                        unsafe_allow_html=True)
+
+            eval_result = evaluate_model_on_region(region)
+            if eval_result is None:
+                st.markdown(
+                    f"""
+                    <div class="rd-note">
+                      No labelled feature table found for {region}
+                      (<span class="mono">{feature_table_csv(region).relative_to(ROOT)}</span>) —
+                      evaluation metrics can't be computed without ground truth to compare against.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                report = eval_result["report"]
+                c1, c2, c3, c4 = st.columns(4, gap="medium")
+                with c1:
+                    metric_card("Accuracy", f"{report['accuracy']:.3f}", f"{eval_result['n']:,} rows")
+                with c2:
+                    metric_card("Precision (built-up)", f"{report['built-up']['precision']:.3f}")
+                with c3:
+                    metric_card("Recall (built-up)", f"{report['built-up']['recall']:.3f}")
+                with c4:
+                    metric_card("F1 (built-up)", f"{report['built-up']['f1-score']:.3f}")
+
+                st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+                with card():
+                    st.markdown('<div class="rd-card-title">Confusion Matrix</div>', unsafe_allow_html=True)
+                    counts = np.array(eval_result["confusion_matrix"])
+                    row_totals = counts.sum(axis=1, keepdims=True)
+                    shares = np.divide(counts, row_totals, out=np.zeros_like(counts, dtype=float),
+                                       where=row_totals > 0)
+                    cm_fig = go.Figure(go.Heatmap(
+                        z=shares, x=["Predicted not built-up", "Predicted built-up"],
+                        y=["Actually not built-up", "Actually built-up"],
+                        colorscale=[[0, "#12191d"], [0.5, "#2c6f6a"], [1, TEAL]],
+                        zmin=0, zmax=1, showscale=False, xgap=2, ygap=2,
+                        text=[[f"{c:,}<br>{s:.0%}" for c, s in zip(rc, rs)] for rc, rs in zip(counts, shares)],
+                        texttemplate="%{text}",
+                        textfont=dict(family="IBM Plex Mono, monospace", size=13, color="#eef2f3"),
+                    ))
+                    cm_fig.update_layout(**plotly_layout(height=280, xaxis=dict(side="top"),
+                                                         yaxis=dict(autorange="reversed")))
+                    st.plotly_chart(cm_fig, width="stretch", config={"displayModeBar": False})
+
+            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
             with card():
-                st.markdown('<div class="rd-card-title">As Last Reported</div>', unsafe_allow_html=True)
-                st.markdown('<div class="rd-sub">From pipeline_summary.json, at the notebook\'s '
-                            'default thresholds</div>', unsafe_allow_html=True)
-                reported = summary[region]
-                for k, v in reported.items():
-                    st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
-                               unsafe_allow_html=True)
+                st.markdown('<div class="rd-card-title">Feature Importance</div>', unsafe_allow_html=True)
+                imp = pd.Series(dict(zip(FEATURE_COLS, model.feature_importances_))).sort_values()
+                imp_fig = go.Figure(go.Bar(
+                    x=imp.values, y=imp.index, orientation="h", marker_color=TEAL,
+                    text=[f"{v:.3f}" for v in imp.values], textposition="outside",
+                ))
+                imp_fig.update_layout(**plotly_layout(height=280, showlegend=False,
+                                                      xaxis=dict(gridcolor="#232b30", title=None,
+                                                                range=[0, imp.max() * 1.18]),
+                                                      yaxis=dict(title=None)))
+                st.plotly_chart(imp_fig, width="stretch", config={"displayModeBar": False})
+
+            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div class="rd-note">
+                  <b>What this model actually does.</b> It does not detect buildings — Google Open
+                  Buildings already found those. It scores each detected point on whether its
+                  spectral signature looks built-up, as a secondary material-overlap check before a
+                  building counts as a real encroachment candidate. Trained once across all three
+                  regions, so a threshold tuned here applies everywhere rather than needing a
+                  region-specific retrain.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # --------------------------------------------------------- tab 2: compare areas
 
@@ -663,169 +759,3 @@ with compare_tab:
         st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
         st.dataframe(cdf, hide_index=True, width="stretch")
 
-# ------------------------------------------------------- tab 3: model performance
-
-with model_tab:
-    if not model_ready:
-        st.markdown(
-            f"""
-            <div class="rd-note">
-              <b>No trained model found.</b> Looking for
-              <span class="mono">{MODEL_PATH.relative_to(ROOT)}</span>.
-              Regenerate with <span class="mono">02_modelling.ipynb</span>.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        with card():
-            st.markdown('<div class="rd-card-title">Model Card</div>', unsafe_allow_html=True)
-            kv = [
-                ("Estimator", f"RandomForestClassifier ({model.n_estimators} trees)"),
-                ("Features", ", ".join(FEATURE_COLS)),
-                ("Label", "builtup — ESA WorldCover ground truth"),
-                ("Training scope", "All three regions combined, trained once"),
-            ]
-            st.markdown(
-                "".join(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>' for k, v in kv),
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        st.markdown(f'<div class="rd-eyebrow">Live evaluation &middot; {region} feature table</div>',
-                    unsafe_allow_html=True)
-
-        eval_result = evaluate_model_on_region(region)
-        if eval_result is None:
-            st.markdown(
-                f"""
-                <div class="rd-note">
-                  No labelled feature table found for {region}
-                  (<span class="mono">{feature_table_csv(region).relative_to(ROOT)}</span>) —
-                  evaluation metrics can't be computed without ground truth to compare against.
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            report = eval_result["report"]
-            c1, c2, c3, c4 = st.columns(4, gap="medium")
-            with c1:
-                metric_card("Accuracy", f"{report['accuracy']:.3f}", f"{eval_result['n']:,} rows")
-            with c2:
-                metric_card("Precision (built-up)", f"{report['built-up']['precision']:.3f}")
-            with c3:
-                metric_card("Recall (built-up)", f"{report['built-up']['recall']:.3f}")
-            with c4:
-                metric_card("F1 (built-up)", f"{report['built-up']['f1-score']:.3f}")
-
-            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-            with card():
-                st.markdown('<div class="rd-card-title">Confusion Matrix</div>', unsafe_allow_html=True)
-                counts = np.array(eval_result["confusion_matrix"])
-                row_totals = counts.sum(axis=1, keepdims=True)
-                shares = np.divide(counts, row_totals, out=np.zeros_like(counts, dtype=float),
-                                   where=row_totals > 0)
-                cm_fig = go.Figure(go.Heatmap(
-                    z=shares, x=["Predicted not built-up", "Predicted built-up"],
-                    y=["Actually not built-up", "Actually built-up"],
-                    colorscale=[[0, "#12191d"], [0.5, "#2c6f6a"], [1, TEAL]],
-                    zmin=0, zmax=1, showscale=False, xgap=2, ygap=2,
-                    text=[[f"{c:,}<br>{s:.0%}" for c, s in zip(rc, rs)] for rc, rs in zip(counts, shares)],
-                    texttemplate="%{text}",
-                    textfont=dict(family="IBM Plex Mono, monospace", size=13, color="#eef2f3"),
-                ))
-                cm_fig.update_layout(**plotly_layout(height=280, xaxis=dict(side="top"),
-                                                     yaxis=dict(autorange="reversed")))
-                st.plotly_chart(cm_fig, width="stretch", config={"displayModeBar": False})
-
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        with card():
-            st.markdown('<div class="rd-card-title">Feature Importance</div>', unsafe_allow_html=True)
-            imp = pd.Series(dict(zip(FEATURE_COLS, model.feature_importances_))).sort_values()
-            imp_fig = go.Figure(go.Bar(
-                x=imp.values, y=imp.index, orientation="h", marker_color=TEAL,
-                text=[f"{v:.3f}" for v in imp.values], textposition="outside",
-            ))
-            imp_fig.update_layout(**plotly_layout(height=280, showlegend=False,
-                                                  xaxis=dict(gridcolor="#232b30", title=None,
-                                                            range=[0, imp.max() * 1.18]),
-                                                  yaxis=dict(title=None)))
-            st.plotly_chart(imp_fig, width="stretch", config={"displayModeBar": False})
-
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            <div class="rd-note">
-              <b>What this model actually does.</b> It does not detect buildings — Google Open
-              Buildings already found those. It scores each detected point on whether its
-              spectral signature looks built-up, as a secondary material-overlap check before a
-              building counts as a real encroachment candidate. Trained once across all three
-              regions, so a threshold tuned here applies everywhere rather than needing a
-              region-specific retrain.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-# ------------------------------------------------------- tab 4: method & data
-
-with method_tab:
-    left, right = st.columns([1.3, 1], gap="medium")
-
-    with left:
-        with card():
-            st.markdown('<div class="rd-card-title">Pipeline</div>', unsafe_allow_html=True)
-            st.markdown(
-                """
-                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.75;margin-top:8px;">
-                <b style="color:var(--text-primary);">1 &middot; Preprocessing</b>
-                (<span class="mono">01_preprocessing.ipynb</span>) — clips OSM waterways to each
-                region's fixed-radius AOI, builds a 60m riparian buffer, and pulls a cloud-masked
-                Sentinel-2 composite (B2/B3/B4/B8/B11/B12 + NDVI/NDBI), sampled against ESA
-                WorldCover ground truth.<br><br>
-                <b style="color:var(--text-primary);">2 &middot; Modelling</b>
-                (<span class="mono">02_modelling.ipynb</span>) — trains one Random Forest across all
-                three regions' feature tables, detects candidate structures via Google Open
-                Buildings (chosen over a custom detector because the median footprint here is
-                ~8m across — smaller than Sentinel-2's 10m pixels), then scores each one with the
-                RF's built-up probability.<br><br>
-                <b style="color:var(--text-primary);">3 &middot; Fusion &amp; report</b>
-                (<span class="mono">03_fusion_and_report.ipynb</span>) — computes true distance to
-                the nearest river line per building, filters on confidence and RF probability, and
-                sweeps a flagging distance to match Kasarani's known field count before applying
-                that same distance elsewhere.
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-        if summary and "note" in summary:
-            st.markdown(f'<div class="rd-note">{summary["note"]}</div>', unsafe_allow_html=True)
-
-    with right:
-        with card():
-            st.markdown('<div class="rd-card-title">Artifacts</div>', unsafe_allow_html=True)
-            rows = []
-            for path, what in [
-                (buildings_csv(REGION), "Detected structures"),
-                (encroaching_csv(REGION), "Encroaching structures"),
-                (rivers_geojson(REGION), "River lines"),
-                (riparian_buffer_geojson(REGION), "Riparian buffer"),
-                (feature_table_csv(REGION), "Labelled feature table"),
-            ]:
-                exists = path.exists()
-                rows.append({
-                    "File": path.name, "Holds": what,
-                    "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
-                    "Status": "present" if exists else "missing",
-                })
-            rows.append({
-                "File": MODEL_PATH.name, "Holds": "Shared Random Forest (trained on Kasarani, "
-                                                    "Gatharaini and Motoine combined)",
-                "Size": f"{MODEL_PATH.stat().st_size / 1e6:.1f} MB" if MODEL_PATH.exists() else "—",
-                "Status": "present" if MODEL_PATH.exists() else "missing",
-            })
-
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=320)
