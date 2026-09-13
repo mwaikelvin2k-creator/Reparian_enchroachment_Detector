@@ -1,5 +1,5 @@
 # Dependencies to run the Streamlit dashboard (app.py) only.
-# For the data/modelling pipeline notebooks, see requirements-pipeline.txt.
+# For the data/modelling pipeline notebooks, see requirements-notebook.txt.
 streamlit==1.63.0
 geopandas==1.1.4
 folium==0.20.0

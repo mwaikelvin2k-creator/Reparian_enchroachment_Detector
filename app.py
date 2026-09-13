@@ -25,14 +25,21 @@ SUMMARY_PATH = DATA_DIR / "pipeline_summary.json"
 METRIC_CRS = "EPSG:32737"
 WGS84 = "EPSG:4326"
 
-REGION = "Kasarani"
+REGIONS = ["Kasarani", "Gatharaini", "Motoine"]
 # Matches 01_preprocessing.ipynb / 02_modelling.ipynb exactly — the fixed-radius
-# circle Kasarani's AOI is built from. Gatharaini and Motoine only contributed
-# training data to the shared model; they were never intended as end-user areas.
-REGION_CENTERS = {"Kasarani": (36.8969, -1.2296)}
+# circle each region's AOI is built from. Kasarani is the only one calibrated
+# against an independent field count (Pamoja Trust, ~700 structures) — Gatharaini
+# and Motoine reuse that same flagging distance untested. Flagged in the sidebar
+# and on the map with a "not field-validated" badge whenever either is selected.
+REGION_CENTERS = {
+    "Kasarani": (36.8969, -1.2296),
+    "Gatharaini": (36.95952127354356, -1.2252700532171976),
+    "Motoine": (36.74237847877641, -1.3113205815273903),
+}
 CASE_STUDY_RADIUS_KM = 3
 
-# Named localities within the Kasarani AOI, for map navigation. Best-effort
+# Named localities within the Kasarani AOI, for map navigation — no verified
+# locality coordinates exist for Gatharaini or Motoine yet. Best-effort
 # approximations — worth spot-checking against OSM before treating as exact.
 KASARANI_AREAS = {
     "Kasarani town centre": (-1.2295, 36.8908),
@@ -86,6 +93,10 @@ def rivers_geojson(region: str) -> Path:
 
 def feature_table_csv(region: str) -> Path:
     return DATA_DIR / f"{region.lower()}_feature_table.csv"
+
+
+def encroaching_csv(region: str) -> Path:
+    return DATA_DIR / f"{region.lower()}_encroaching_buildings.csv"
 
 
 # ---------------------------------------------------------------- data loading
@@ -362,16 +373,27 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="rd-eyebrow">Study Area</div>', unsafe_allow_html=True)
-    st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count (~700 structures)</span>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="rd-eyebrow">Region</div>', unsafe_allow_html=True)
+    region = st.selectbox("Region", REGIONS, label_visibility="collapsed")
+    if region == "Kasarani":
+        st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count '
+                    '(~700 structures)</span>', unsafe_allow_html=True)
+    else:
+        st.markdown('<span class="rd-badge rd-badge-warn">Not field-validated — extrapolated from '
+                    'the Kasarani-calibrated model</span>', unsafe_allow_html=True)
 
     st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Jump to Area</div>', unsafe_allow_html=True)
     if "pending_jump" in st.session_state:
         st.session_state["map_center"] = st.session_state.pop("pending_jump")
 
-    area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
-                         label_visibility="collapsed")
+    if region == "Kasarani":
+        area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
+                             label_visibility="collapsed")
+    else:
+        area_mode = "Search (OpenStreetMap)"
+        st.session_state["map_center"] = (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+        st.caption("No named localities catalogued for this region yet — search below, "
+                   "or use the map's own pan/zoom.")
 
     if area_mode == "Named locality":
         area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
@@ -381,7 +403,7 @@ with st.sidebar:
         query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
                               label_visibility="collapsed")
         if query:
-            result = geocode_place_osm(query, REGION)
+            result = geocode_place_osm(query, region)
             if result is None:
                 st.warning("No match found — try a more specific name.")
             else:
@@ -425,8 +447,6 @@ with st.sidebar:
 
 # --------------------------------------------------------------------- compute
 
-region = REGION  # single fixed study area — kept as a local name so the
-                  # rest of this file (map, tabs) needs no further changes
 region_table = build_region_table(region)
 data_ready = region_table is not None
 
@@ -504,7 +524,7 @@ with st.sidebar:
                 st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
                            unsafe_allow_html=True)
 
-map_tab, compare_tab = st.tabs(["Detection map", "Compare areas"])
+map_tab, compare_tab, method_tab = st.tabs(["Detection map", "Compare areas", "Method & data"])
 
 # ------------------------------------------------------------- tab 1: the map
 
@@ -700,62 +720,176 @@ with map_tab:
 
 with compare_tab:
     with card():
-        st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rd-card-title">Encroaching Structures by Region</div>', unsafe_allow_html=True)
         st.markdown(
-            f'<div class="rd-sub">All {len(encroaching):,} structures flagged as encroaching '
-            f"(within {flag_distance_m}m of a river) — grouped by whichever named locality "
-            "they're closest to</div>",
+            '<div class="rd-sub">Only Kasarani is calibrated against independent ground truth — '
+            "Gatharaini and Motoine reuse that same flagging distance untested</div>",
             unsafe_allow_html=True,
         )
 
-        transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
-        encroaching_metric_xy = np.array([
-            transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
-        ]) if len(encroaching) else np.empty((0, 2))
+        region_compare_rows = []
+        for r in REGIONS:
+            t = build_region_table(r)
+            if t is None:
+                continue
+            e = apply_filters(t, confidence_threshold, material_threshold, flag_distance_m)
+            region_compare_rows.append({
+                "region": r, "encroaching": len(e), "screened": len(t),
+                "calibrated": r == "Kasarani",
+            })
 
-        locality_names = list(KASARANI_AREAS.keys())
-        locality_xy = np.array([
-            transformer.transform(area_lon, area_lat) for area_lat, area_lon in KASARANI_AREAS.values()
-        ])
+        if region_compare_rows:
+            region_cdf = pd.DataFrame(region_compare_rows)
+            region_fig = go.Figure(go.Bar(
+                x=region_cdf["region"], y=region_cdf["encroaching"],
+                marker_color=[RED if c else AMBER for c in region_cdf["calibrated"]],
+                text=[f"{v:,}" for v in region_cdf["encroaching"]], textposition="outside",
+                hovertemplate="%{x}: %{y:,} encroaching<extra></extra>",
+            ))
+            region_fig.update_layout(**plotly_layout(height=280, showlegend=False,
+                                              yaxis=dict(gridcolor="#232b30", title=None),
+                                              xaxis=dict(title=None)))
+            st.plotly_chart(region_fig, width="stretch", config={"displayModeBar": False})
+            st.markdown(
+                f'<div class="rd-legend-row">'
+                f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{RED};"></span>'
+                f'Calibrated (Kasarani)</div>'
+                f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{AMBER};"></span>'
+                f'Untested extrapolation</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-        if len(encroaching_metric_xy):
-            # distance from every encroaching structure to every locality centre, then
-            # assign each structure to whichever centre is closest — a fixed search
-            # radius (the previous approach) either missed structures sitting between
-            # localities or double-counted ones near two centres at once. Nearest-centre
-            # assignment guarantees every structure is counted exactly once.
-            diffs = encroaching_metric_xy[:, None, :] - locality_xy[None, :, :]
-            dists = np.hypot(diffs[..., 0], diffs[..., 1])
-            nearest_idx = dists.argmin(axis=1)
-            counts = pd.Series(nearest_idx).value_counts()
-        else:
-            counts = pd.Series(dtype=int)
+    if region == "Kasarani":
+        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        with card():
+            st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="rd-sub">All {len(encroaching):,} structures flagged as encroaching '
+                f"(within {flag_distance_m}m of a river) — grouped by whichever named locality "
+                "they're closest to</div>",
+                unsafe_allow_html=True,
+            )
 
-        compare_rows = [
-            {"locality": name, "encroaching_count": int(counts.get(i, 0))}
-            for i, name in enumerate(locality_names)
-        ]
+            transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
+            encroaching_metric_xy = np.array([
+                transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
+            ]) if len(encroaching) else np.empty((0, 2))
 
-        cdf = pd.DataFrame(compare_rows).sort_values("encroaching_count", ascending=False)
-        fig = go.Figure(go.Bar(
-            x=cdf["locality"], y=cdf["encroaching_count"], marker_color=RED,
-            text=[f"{v:,}" for v in cdf["encroaching_count"]], textposition="outside",
-            hovertemplate="%{x}: %{y:,} encroaching structures (nearest)<extra></extra>",
-        ))
-        fig.update_layout(**plotly_layout(height=320, showlegend=False,
-                                          yaxis=dict(gridcolor="#232b30", title=None),
-                                          xaxis=dict(title=None)))
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            locality_names = list(KASARANI_AREAS.keys())
+            locality_xy = np.array([
+                transformer.transform(area_lon, area_lat) for area_lat, area_lon in KASARANI_AREAS.values()
+            ])
+
+            if len(encroaching_metric_xy):
+                # distance from every encroaching structure to every locality centre, then
+                # assign each structure to whichever centre is closest — a fixed search
+                # radius (the previous approach) either missed structures sitting between
+                # localities or double-counted ones near two centres at once. Nearest-centre
+                # assignment guarantees every structure is counted exactly once.
+                diffs = encroaching_metric_xy[:, None, :] - locality_xy[None, :, :]
+                dists = np.hypot(diffs[..., 0], diffs[..., 1])
+                nearest_idx = dists.argmin(axis=1)
+                counts = pd.Series(nearest_idx).value_counts()
+            else:
+                counts = pd.Series(dtype=int)
+
+            compare_rows = [
+                {"locality": name, "encroaching_count": int(counts.get(i, 0))}
+                for i, name in enumerate(locality_names)
+            ]
+
+            cdf = pd.DataFrame(compare_rows).sort_values("encroaching_count", ascending=False)
+            fig = go.Figure(go.Bar(
+                x=cdf["locality"], y=cdf["encroaching_count"], marker_color=RED,
+                text=[f"{v:,}" for v in cdf["encroaching_count"]], textposition="outside",
+                hovertemplate="%{x}: %{y:,} encroaching structures (nearest)<extra></extra>",
+            ))
+            fig.update_layout(**plotly_layout(height=320, showlegend=False,
+                                              yaxis=dict(gridcolor="#232b30", title=None),
+                                              xaxis=dict(title=None)))
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.markdown(
+                '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">'
+                "Locality centres are best-effort approximate coordinates, not official "
+                "administrative boundaries — treat this as a directional triage view, not a "
+                "precise ward-by-ward count.</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+        with card():
+            st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
+            st.dataframe(cdf, hide_index=True, width="stretch")
+    else:
+        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
         st.markdown(
-            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">'
-            "Locality centres are best-effort approximate coordinates, not official "
-            "administrative boundaries — treat this as a directional triage view, not a "
-            "precise ward-by-ward count.</div>",
+            '<div class="rd-note">Locality-level breakdown is only catalogued for Kasarani — '
+            f"switch the sidebar region back to Kasarani to see the by-locality view, or use "
+            f"the region totals above for {region}.</div>",
             unsafe_allow_html=True,
         )
 
-    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-    with card():
-        st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
-        st.dataframe(cdf, hide_index=True, width="stretch")
+# ------------------------------------------------------- tab 3: method & data
+
+with method_tab:
+    left, right = st.columns([1.3, 1], gap="medium")
+
+    with left:
+        with card():
+            st.markdown('<div class="rd-card-title">Pipeline</div>', unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.75;margin-top:8px;">
+                <b style="color:var(--text-primary);">1 &middot; Preprocessing</b>
+                (<span class="mono">01_preprocessing.ipynb</span>) — clips OSM waterways to each
+                region's fixed-radius AOI, builds a 60m riparian buffer, and pulls a cloud-masked
+                Sentinel-2 composite (B2/B3/B4/B8/B11/B12 + NDVI/NDBI), sampled against ESA
+                WorldCover ground truth.<br><br>
+                <b style="color:var(--text-primary);">2 &middot; Modelling</b>
+                (<span class="mono">02_modelling.ipynb</span>) — trains one Random Forest across all
+                three regions' feature tables, detects candidate structures via Google Open
+                Buildings (chosen over a custom detector because the median footprint here is
+                ~8m across — smaller than Sentinel-2's 10m pixels), then scores each one with the
+                RF's built-up probability.<br><br>
+                <b style="color:var(--text-primary);">3 &middot; Fusion &amp; report</b>
+                (<span class="mono">03_fusion_and_report.ipynb</span>) — computes true distance to
+                the nearest river line per building, filters on confidence and RF probability, and
+                sweeps a flagging distance to match Kasarani's known field count before applying
+                that same distance elsewhere.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+        if summary and "note" in summary:
+            st.markdown(f'<div class="rd-note">{summary["note"]}</div>', unsafe_allow_html=True)
+
+    with right:
+        with card():
+            st.markdown('<div class="rd-card-title">Artifacts</div>', unsafe_allow_html=True)
+            rows = []
+            for r in REGIONS:
+                for path, what in [
+                    (buildings_csv(r), f"{r} — detected structures"),
+                    (encroaching_csv(r), f"{r} — encroaching structures"),
+                    (rivers_geojson(r), f"{r} — river lines"),
+                    (riparian_buffer_geojson(r), f"{r} — riparian buffer"),
+                ]:
+                    exists = path.exists()
+                    rows.append({
+                        "File": path.name, "Holds": what,
+                        "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
+                        "Status": "present" if exists else "missing",
+                    })
+            rows.append({
+                "File": MODEL_PATH.name, "Holds": "Shared Random Forest (trained on Kasarani, "
+                                                    "Gatharaini and Motoine combined)",
+                "Size": f"{MODEL_PATH.stat().st_size / 1e6:.1f} MB" if MODEL_PATH.exists() else "—",
+                "Status": "present" if MODEL_PATH.exists() else "missing",
+            })
+
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=320)
+
 
