@@ -164,6 +164,13 @@ def region_aoi_wgs84(region: str) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(geometry=circle_metric, crs=METRIC_CRS).to_crs(WGS84)
 
 
+def leaflet_bounds(gdf: gpd.GeoDataFrame) -> list:
+    """[[south, west], [north, east]] — the format Leaflet's fitBounds /
+    flyToBounds expect, from any WGS84 GeoDataFrame's total_bounds."""
+    minx, miny, maxx, maxy = gdf.total_bounds
+    return [[miny, minx], [maxy, maxx]]
+
+
 @st.cache_data(show_spinner=False)
 def build_region_table(region: str) -> pd.DataFrame | None:
     """Buildings with true distance-to-river added — mirrors
@@ -268,13 +275,13 @@ def inject_css() -> None:
         [data-testid="stSidebar"] { background: var(--bg-panel); border-right: 1px solid var(--border); }
         [data-testid="stSidebar"] .stMarkdown p { color: var(--text-secondary); }
         [data-testid="stHeader"] { background: transparent; }
-        .block-container { padding-top: 1.4rem; }
+        .block-container { padding-top: 0.6rem; }
         .rd-eyebrow{ text-transform:uppercase; letter-spacing:.08em; font-size:11px; color:var(--text-tertiary); font-weight:600; margin-bottom:6px; }
         .rd-card{ background:var(--bg-panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; height:100%; }
         .rd-card-title{ font-size:12px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--text-primary); }
         .rd-sub{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-tertiary); margin-top:2px; line-height:1.5; }
         .rd-metric-big{ font-family:'IBM Plex Mono',monospace; font-size:38px; font-weight:700; color:var(--accent-amber); line-height:1; }
-        .rd-metric-mid{ font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; color:var(--text-primary); }
+        .rd-metric-mid{ font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; color:var(--text-primary); }
         .rd-metric-label{ text-transform:uppercase; letter-spacing:.06em; font-size:10.5px; color:var(--text-tertiary); }
         .rd-badge{ font-family:'IBM Plex Mono',monospace; font-size:11px; padding:6px 12px; border-radius:6px; border:1px solid var(--border); color:var(--text-tertiary); display:inline-block; }
         .rd-badge-ok{ background:rgba(106,209,138,0.12); border:1px solid var(--accent-green); color:var(--accent-green); }
@@ -282,8 +289,8 @@ def inject_css() -> None:
         .rd-legend-row{ display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; }
         .rd-legend-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); }
         .rd-swatch{ width:10px; height:10px; border-radius:50%; display:inline-block; }
-        .rd-header{ display:flex; align-items:center; justify-content:space-between; padding:14px 4px 18px; border-bottom:1px solid var(--border); margin-bottom:18px; }
-        .rd-title{ font-size:18px; font-weight:700; letter-spacing:.02em; color:var(--text-primary); }
+        .rd-header{ display:flex; align-items:center; justify-content:space-between; padding:4px 4px 6px; border-bottom:1px solid var(--border); margin-bottom:6px; }
+        .rd-title{ font-size:13px; font-weight:600; letter-spacing:.01em; color:var(--text-primary); }
         .rd-subtitle{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-tertiary); letter-spacing:.03em; }
         .rd-note{ border-left:2px solid var(--accent-amber); background:rgba(242,181,68,0.06); padding:12px 14px; border-radius:0 8px 8px 0; font-size:12.5px; color:var(--text-secondary); line-height:1.65; }
         .rd-kv{ display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--border-soft); font-size:12px; }
@@ -354,98 +361,128 @@ summary = load_pipeline_summary()
 model = load_model()
 model_ready = model is not None
 
-with st.sidebar:
-    st.markdown(
-        """
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
-          <svg width="28" height="28" viewBox="0 0 30 30" fill="none">
-            <circle cx="15" cy="15" r="13" stroke="#4dd0c4" stroke-width="1.4" opacity="0.35"/>
-            <circle cx="15" cy="15" r="9" stroke="#4dd0c4" stroke-width="1.4" opacity="0.6"/>
-            <path d="M9 17 L15 11 L21 17 Z" fill="#f2b544"/>
-            <rect x="12" y="17" width="6" height="5" fill="#f2b544"/>
-          </svg>
-          <div>
-            <div style="font-weight:600;font-size:14px;color:#eef2f3;line-height:1.2;">RIPARIAN DETECTOR</div>
-            <div class="mono" style="font-size:10px;color:#5c6b73;">NAIROBI RIVER BASIN</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+region_peek = st.session_state.get("region_select", REGIONS[0])
 
-    st.markdown('<div class="rd-eyebrow">Region</div>', unsafe_allow_html=True)
-    region = st.selectbox("Region", REGIONS, label_visibility="collapsed")
+st.markdown(
+    f"""
+    <div class="rd-header">
+      <div style="display:flex;align-items:center;gap:7px;">
+        <svg width="14" height="14" viewBox="0 0 30 30" fill="none">
+          <circle cx="15" cy="15" r="13" stroke="#4dd0c4" stroke-width="2"/>
+          <path d="M9 17 L15 11 L21 17 Z" fill="#f2b544"/>
+        </svg>
+        <span class="rd-title">Riparian Encroachment Detector</span>
+        <span class="rd-subtitle">&middot; {region_peek.upper()}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="width:6px;height:6px;border-radius:50%;background:#4dd0c4;display:inline-block;box-shadow:0 0 5px #4dd0c4;"></span>
+        <span class="mono" style="font-size:10px;color:#8a9aa3;text-transform:uppercase;">Live</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+tb_region, tb_badge, tb_area, tb_filters, tb_basemap, tb_model, tb_spacer, tb_export1, tb_export2 = st.columns(
+    [1.7, 1.05, 0.85, 0.85, 1.0, 0.8, 1.5, 1.15, 1.05], gap="small"
+)
+
+with tb_region:
+    with st.popover(f"Region: {region_peek}", width="stretch"):
+        region = st.selectbox("Region", REGIONS, key="region_select", label_visibility="collapsed")
+
+with tb_badge:
+    st.markdown("<div style='padding-top:8px;'></div>", unsafe_allow_html=True)
     if region == "Kasarani":
-        st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count '
-                    '(~700 structures)</span>', unsafe_allow_html=True)
+        st.markdown('<span class="rd-badge rd-badge-ok" style="font-size:9.5px;padding:5px 9px;">'
+                    'Calibrated</span>', unsafe_allow_html=True)
     else:
-        st.markdown('<span class="rd-badge rd-badge-warn">Not field-validated — extrapolated from '
-                    'the Kasarani-calibrated model</span>', unsafe_allow_html=True)
+        st.markdown('<span class="rd-badge rd-badge-warn" style="font-size:9.5px;padding:5px 9px;">'
+                    'Not field-validated</span>', unsafe_allow_html=True)
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Jump to Area</div>', unsafe_allow_html=True)
-    if "pending_jump" in st.session_state:
-        st.session_state["map_center"] = st.session_state.pop("pending_jump")
+with tb_area:
+    with st.popover("Area", width="stretch"):
+        if "pending_jump" in st.session_state:
+            st.session_state["map_center"] = st.session_state.pop("pending_jump")
 
-    if region == "Kasarani":
-        area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
-                             label_visibility="collapsed")
-    else:
-        area_mode = "Search (OpenStreetMap)"
-        st.session_state["map_center"] = (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
-        st.caption("No named localities catalogued for this region yet — search below, "
-                   "or use the map's own pan/zoom.")
+        if region == "Kasarani":
+            area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
+                                 label_visibility="collapsed")
+        else:
+            area_mode = "Search (OpenStreetMap)"
+            st.session_state["map_center"] = (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+            st.caption("No named localities catalogued for this region yet — search below, "
+                       "or use the map's own pan/zoom.")
 
-    if area_mode == "Named locality":
-        area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
-        st.session_state["map_center"] = KASARANI_AREAS[area_choice]
-        st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
-    else:
-        query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
-                              label_visibility="collapsed")
-        if query:
-            result = geocode_place_osm(query, region)
-            if result is None:
-                st.warning("No match found — try a more specific name.")
-            else:
-                lat, lon, display_name = result
-                st.session_state["pending_jump"] = (lat, lon)
-                st.caption(f"Found: {display_name}")
-        st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
+        if area_mode == "Named locality":
+            area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
+            st.session_state["map_center"] = KASARANI_AREAS[area_choice]
+            st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
+        else:
+            query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
+                                  label_visibility="collapsed")
+            if query:
+                result = geocode_place_osm(query, region)
+                if result is None:
+                    st.warning("No match found — try a more specific name.")
+                else:
+                    lat, lon, display_name = result
+                    st.session_state["pending_jump"] = (lat, lon)
+                    st.caption(f"Found: {display_name}")
+            st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Screening Filters</div>', unsafe_allow_html=True)
-    confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
-                                     DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
-    material_threshold = st.slider("RF built-up probability ≥", 0.0, 0.5,
-                                   DEFAULT_MATERIAL_OVERLAP_THRESHOLD, 0.01)
+with tb_filters:
+    with st.popover("Filters", width="stretch"):
+        st.markdown('<div class="rd-eyebrow">Screening Filters</div>', unsafe_allow_html=True)
+        confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
+                                         DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
+        material_threshold = st.slider("RF built-up probability ≥", 0.0, 0.5,
+                                       DEFAULT_MATERIAL_OVERLAP_THRESHOLD, 0.01)
 
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Flagging Distance</div>', unsafe_allow_html=True)
-    calibrated_distance_default = int(summary["calibrated_distance_m"]) if summary else 16
-    flag_distance_m = st.slider("Flag within (m) of river", 5, 60, calibrated_distance_default, 1)
-    st.caption(
-        f"Calibrated at {calibrated_distance_default}m against Kasarani's Pamoja Trust field "
-        "survey (~700 structures). The same cutoff is applied to Gatharaini and Motoine "
-        "untested — there is no independent count for either yet."
-    )
-
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Basemap</div>', unsafe_allow_html=True)
-    basemap_label = st.selectbox("Basemap", list(BASEMAPS.keys()), label_visibility="collapsed")
-
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Model</div>', unsafe_allow_html=True)
-    if model_ready:
-        st.markdown(
-            f"""
-            <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.6;">
-            RandomForestClassifier &middot; {model.n_estimators} trees<br>
-            Trained once on all three regions combined<br>
-            Features: {", ".join(FEATURE_COLS)}
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.markdown('<div class="rd-eyebrow" style="margin-top:14px;">Flagging Distance</div>',
+                    unsafe_allow_html=True)
+        calibrated_distance_default = int(summary["calibrated_distance_m"]) if summary else 16
+        flag_distance_m = st.slider("Flag within (m) of river", 5, 60, calibrated_distance_default, 1)
+        st.caption(
+            f"Calibrated at {calibrated_distance_default}m against Kasarani's Pamoja Trust field "
+            "survey (~700 structures). The same cutoff is applied to Gatharaini and Motoine "
+            "untested — there is no independent count for either yet."
         )
-    else:
-        st.caption("Model not available.")
+
+with tb_basemap:
+    with st.popover("Basemap", width="stretch"):
+        basemap_label = st.selectbox("Basemap", list(BASEMAPS.keys()), label_visibility="collapsed")
+
+with tb_model:
+    with st.popover("Model", width="stretch"):
+        if model_ready:
+            st.markdown(
+                f"""
+                <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.6;">
+                RandomForestClassifier &middot; {model.n_estimators} trees<br>
+                Trained once on all three regions combined<br>
+                Features: {", ".join(FEATURE_COLS)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("Model not available.")
+
+with tb_export1:
+    export1_slot = st.empty()
+with tb_export2:
+    export2_slot = st.empty()
 
 # --------------------------------------------------------------------- compute
+
+# Tracks the previously shown region so the map can animate away from where
+# the user was, rather than jump-cutting straight to the newly picked region.
+if "shown_region" not in st.session_state:
+    st.session_state["shown_region"] = region
+region_changed = st.session_state["shown_region"] != region
+prev_region = st.session_state["shown_region"]
+st.session_state["shown_region"] = region
 
 region_table = build_region_table(region)
 data_ready = region_table is not None
@@ -456,22 +493,6 @@ if data_ready:
         (region_table["confidence"] >= confidence_threshold)
         & (region_table["rf_builtup_prob"] >= material_threshold)
     ]
-
-st.markdown(
-    f"""
-    <div class="rd-header">
-      <div>
-        <div class="rd-title">RIPARIAN ENCROACHMENT DETECTOR</div>
-        <div class="rd-subtitle">{region.upper()} &middot; NAIROBI RIVER BASIN</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <span style="width:7px;height:7px;border-radius:50%;background:#4dd0c4;display:inline-block;box-shadow:0 0 6px #4dd0c4;"></span>
-        <span class="mono" style="font-size:11px;color:#8a9aa3;text-transform:uppercase;">Live</span>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
 if not data_ready:
     st.markdown(
@@ -486,21 +507,21 @@ if not data_ready:
     )
     st.stop()
 
-with st.sidebar:
-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Results</div>', unsafe_allow_html=True)
-
-    with card():
-        st.markdown('<div class="rd-metric-label">Encroaching Structures</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="rd-metric-big">{len(encroaching):,}</div>', unsafe_allow_html=True)
-        st.markdown(
-            f'<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">'
-            f'of {len(region_table):,} candidate structures in {region}</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-
-    with card():
+metric_col1, metric_col2, metric_col3, metric_col4 = st.columns([1, 1, 1, 1.4], gap="small")
+with metric_col1:
+    with card("padding:8px 14px;"):
+        st.markdown('<div class="rd-metric-label">Encroaching</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rd-metric-mid">{len(encroaching):,}</div>', unsafe_allow_html=True)
+with metric_col2:
+    with card("padding:8px 14px;"):
+        st.markdown('<div class="rd-metric-label">Screened</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rd-metric-mid">{len(region_table):,}</div>', unsafe_allow_html=True)
+with metric_col3:
+    with card("padding:8px 14px;"):
+        st.markdown('<div class="rd-metric-label">Flagging distance</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="rd-metric-mid">{flag_distance_m}m</div>', unsafe_allow_html=True)
+with metric_col4:
+    with st.popover("Screening funnel & last reported", width="stretch"):
         st.markdown('<div class="rd-card-title">Screening Funnel</div>', unsafe_allow_html=True)
         funnel = [
             ("Detected (Open Buildings)", len(region_table)),
@@ -512,10 +533,8 @@ with st.sidebar:
                 f'<div class="rd-kv"><span>{label}</span><span>{value:,}</span></div>',
                 unsafe_allow_html=True,
             )
-
-    if summary and region in summary:
-        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-        with card():
+        if summary and region in summary:
+            st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
             st.markdown('<div class="rd-card-title">As Last Reported</div>', unsafe_allow_html=True)
             st.markdown('<div class="rd-sub">From the last full run, at its original '
                         'screening settings</div>', unsafe_allow_html=True)
@@ -523,6 +542,23 @@ with st.sidebar:
             for k, v in reported.items():
                 st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
                            unsafe_allow_html=True)
+
+with export1_slot:
+    st.download_button(
+        "⬇ Encroaching",
+        data=encroaching.to_csv(index=False).encode("utf-8"),
+        file_name=f"{region.lower()}_encroaching_{flag_distance_m}m.csv",
+        mime="text/csv",
+        width="stretch",
+    )
+with export2_slot:
+    st.download_button(
+        "⬇ Full table",
+        data=region_table.to_csv(index=False).encode("utf-8"),
+        file_name=f"{region.lower()}_screened_structures.csv",
+        mime="text/csv",
+        width="stretch",
+    )
 
 map_tab, compare_tab, method_tab = st.tabs(["Detection map", "Compare areas", "Method & data"])
 
@@ -540,14 +576,36 @@ with map_tab:
             unsafe_allow_html=True,
         )
 
-        center_lat, center_lon = st.session_state.get(
-            "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
-        )
-        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
-                          tiles=BASEMAPS[basemap_label], control_scale=True,
-                          scrollWheelZoom=False)
-
         aoi = region_aoi_wgs84(region)
+        aoi_bounds = leaflet_bounds(aoi)
+
+        rivers_path = rivers_geojson(region)
+        rivers_display = None
+        if rivers_path.exists():
+            rivers_display = gpd.read_file(rivers_path)
+            if rivers_display.crs is None:
+                rivers_display = rivers_display.set_crs(METRIC_CRS)
+            rivers_display = rivers_display.to_crs(WGS84)
+        river_bounds = leaflet_bounds(rivers_display) if rivers_display is not None else aoi_bounds
+
+        if region_changed:
+            # Start the map where the user just was (the previous region's
+            # boundary), so switching regions reads as a pan/zoom away from
+            # it rather than a jump-cut straight to the new one.
+            prev_bounds = leaflet_bounds(region_aoi_wgs84(prev_region))
+            (prev_s, prev_w), (prev_n, prev_e) = prev_bounds
+            fmap = folium.Map(location=[(prev_s + prev_n) / 2, (prev_w + prev_e) / 2], zoom_start=13,
+                              tiles=BASEMAPS[basemap_label], control_scale=True,
+                              scrollWheelZoom=False)
+            fmap.fit_bounds(prev_bounds)
+        else:
+            center_lat, center_lon = st.session_state.get(
+                "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+            )
+            fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
+                              tiles=BASEMAPS[basemap_label], control_scale=True,
+                              scrollWheelZoom=False)
+
         folium.GeoJson(
             json.loads(aoi.to_json()),
             style_function=lambda _f: {"fillOpacity": 0, "color": TEAL, "weight": 1.2,
@@ -564,12 +622,7 @@ with map_tab:
                 name="60m riparian buffer",
             ).add_to(fmap)
 
-        rivers_path = rivers_geojson(region)
-        if rivers_path.exists():
-            rivers_display = gpd.read_file(rivers_path)
-            if rivers_display.crs is None:
-                rivers_display = rivers_display.set_crs(METRIC_CRS)
-            rivers_display = rivers_display.to_crs(WGS84)
+        if rivers_display is not None:
             folium.GeoJson(
                 json.loads(rivers_display.to_json()),
                 style_function=lambda _f: {"color": TEAL, "weight": 2},
@@ -597,6 +650,24 @@ with map_tab:
                 data=data, callback=marker_js, name=label,
                 options={"maxClusterRadius": 45, "showCoverageOnHover": False, "disableClusteringAtZoom": 17},
             ).add_to(fmap)
+
+        if region_changed:
+            # Two-stage fly: first out/across to the newly selected region's
+            # boundary circle, then in to the tighter extent of its actual
+            # waterways — chained on Leaflet's own 'moveend' event rather than
+            # a guessed delay, so the second leg only starts once the first
+            # has genuinely finished.
+            map_var = fmap.get_name()
+            transition_script = f"""
+            setTimeout(function(){{
+                var m = {map_var};
+                m.flyToBounds({json.dumps(aoi_bounds)}, {{duration: 1.5, padding: [20, 20]}});
+                m.once('moveend', function(){{
+                    m.flyToBounds({json.dumps(river_bounds)}, {{duration: 1.1, padding: [30, 30], maxZoom: 16}});
+                }});
+            }}, 150);
+            """
+            fmap.get_root().script.add_child(folium.Element(transition_script))
 
         folium.LayerControl(collapsed=True).add_to(fmap)
         st_folium(fmap, height=640, use_container_width=True, returned_objects=[], key="main_map")
