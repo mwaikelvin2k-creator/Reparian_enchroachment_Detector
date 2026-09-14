@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .venv/
+
+# Editor/runtime artifacts — machine-specific, not part of the project
+.claude/
+cache/
