@@ -1,0 +1,833 @@
+diff --git a/SETUP.md b/SETUP.md
+index ea88191..779f651 100644
+--- a/SETUP.md
++++ b/SETUP.md
+@@ -4,19 +4,18 @@ Step-by-step instructions for getting this project running on your own machine,
+ 
+ ## What you're setting up
+ 
+-Three separate things live in this repo:
++Two things live in this repo:
+ 
+-1. **The Streamlit dashboard** (`app.py`) — reads the *already-generated* data files in `processed/` and lets you explore them interactively. This is what most people want, and it's quick to set up (no external accounts needed).
+-2. **The data-prep notebook** (`preprocessing.ipynb`) — the pipeline that *produced* those files from OpenStreetMap and Google Earth Engine. You only need this if you want to regenerate the data (e.g. for a different area, or a different buffer distance baked into the source files). It needs a free Google Earth Engine account and a heavier set of geospatial packages.
+-3. **The Random Forest training pipeline**  — extracts Sentinel-2 spectral features per building, auto-labels them by distance to the river, trains the Phase 1 classifier, and writes the artifacts the dashboard's model layers read. Its outputs (`processed/`, `rf_baseline.joblib`) are gitignored build products, so a fresh clone won't have them until you run it.
++1. **The Streamlit dashboard** (`app.py`) — reads the *already-generated* data files in `data/processed/` and lets you explore them interactively. This is what most people want, and it's quick to set up (no external accounts needed). These files are committed to the repo, so a fresh clone has everything the dashboard needs out of the box.
++2. **The data + modelling pipeline** (`notebooks/01_preprocessing.ipynb`, `02_modelling.ipynb`, `03_fusion_and_report.ipynb`) — the three notebooks that produced the files in `data/processed/`, in order: preprocessing pulls and cleans the source data, modelling trains the shared Random Forest, and fusion & report applies the distance filter and writes the final artifacts. You only need these if you want to regenerate the data (e.g. a different buffer distance, or retraining the model). Preprocessing needs a free Google Earth Engine account and a heavier geospatial package set.
+ 
+-Section 1–4 below get the dashboard running. Section 5 covers regenerating the source data, and section 6 covers training the model.
++Sections 1–4 below get the dashboard running. Section 5 covers regenerating the source data.
+ 
+ ## Prerequisites
+ 
+-- **Python 3.10 or newer.** This project was built and tested on Python 3.14.6, including the notebook's heavier geospatial stack (`rasterio`, `osmnx`, `geemap`) — all installed cleanly from prebuilt wheels. If you're on an unusual platform and hit a package-install error, falling back to Python 3.11 or 3.12 is a reasonable first thing to try, since some niche packages publish wheels for established versions first.
++- **Python 3.10 or newer.** This project was built and tested on Python 3.14.6 — all dependencies installed cleanly from prebuilt wheels. If you're on an unusual platform and hit a package-install error, falling back to Python 3.11 or 3.12 is a reasonable first thing to try, since some niche packages publish wheels for established versions first.
+ - **Git**, to clone the repository.
+-- **(Notebook path only)** A [Google Earth Engine](https://earthengine.google.com/) account and a Google Cloud project with the Earth Engine API enabled — the notebook authenticates against this to pull satellite imagery and building footprints.
++- **(Notebook path only)** A [Google Earth Engine](https://earthengine.google.com/) account and a Google Cloud project with the Earth Engine API enabled — the preprocessing notebook authenticates against this to pull satellite imagery and building footprints.
+ 
+ Check your Python version:
+ 
+@@ -73,7 +72,7 @@ pip install --upgrade pip
+ pip install -r requirements.txt
+ ```
+ 
+-This installs Streamlit plus the geospatial stack the dashboard needs: `geopandas`, `folium`, `streamlit-folium`, `shapely`, `pyproj`, `pyogrio`, `pandas`, `plotly`. On Windows/macOS/Linux these all ship prebuilt wheels, so this step shouldn't need a C compiler or system GDAL install.
++This installs Streamlit plus the geospatial stack the dashboard needs: `geopandas`, `folium`, `streamlit-folium`, `shapely`, `pyproj`, `pyogrio`, `pandas`, `numpy`, `plotly`, `scikit-learn`, `joblib`, `requests`. All of these ship prebuilt wheels on Windows/macOS/Linux, so this step shouldn't need a C compiler or a system GDAL install.
+ 
+ ## 4. Run the dashboard
+ 
+@@ -83,15 +82,14 @@ streamlit run app.py
+ 
+ Streamlit prints a local URL (usually `http://localhost:8501`) and should open it in your browser automatically. If not, open that URL yourself.
+ 
+-The dashboard reads directly from the `.gpkg` files already committed under `Preprocessing/` — there's nothing else to configure. Use the sidebar to enter a coordinate, drag the riparian buffer slider, and switch basemaps; the map, live counter, and charts update from the real classified building data.
++The dashboard reads directly from the files already committed under `data/processed/` — there's nothing else to configure. Use the sidebar to switch localities, search a place by name, adjust the screening filters, and change the flagging distance; the map, live counts, and charts update from the real classified building data.
+ 
+-It opens on three tabs:
++It opens on tabs including:
+ 
+-- **Detection map** — the interactive map, live counts, and the citywide risk-tier breakdown.
+-- **Model performance** — the Random Forest's model card, confusion matrix, precision/recall-vs-threshold curve, and feature importances. Empty until you run section 6.
+-- **Method & data** — how each layer was produced, and which build artifacts are present on disk.
++- **Detection map** — the interactive map and the live screening funnel.
++- **Compare areas** — encroaching structures grouped by named locality within the study area.
+ 
+-The sidebar's **Detection layer** control switches between the geometric buffer rule, the Random Forest, and a side-by-side comparison of the two. The last two only appear once the model artifacts exist — see section 6.
++Model performance (model card, confusion matrix, feature importances) lives under an expander on the detection map tab rather than a separate top-level tab in the current layout.
+ 
+ To stop the app, go back to the terminal and press `Ctrl+C`.
+ 
+@@ -111,62 +109,38 @@ Skip this unless you specifically want to re-run the data pipeline — the dashb
+    earthengine authenticate
+    ```
+ 
+-   This opens a browser window to sign in and grant access. You'll also need to edit the `ee.Initialize(project="...")` calls near the top of the notebook to point at your own Google Cloud project ID (the one committed in the notebook belongs to the original author and you won't have access to it).
++   This opens a browser window to sign in and grant access. You'll also need to edit the `ee.Initialize(project="...")` call near the top of `notebooks/01_preprocessing.ipynb` to point at your own Google Cloud project ID (the one committed in the notebook belongs to the original author and you won't have access to it).
+ 
+-3. Launch Jupyter and run the notebook top to bottom:
++3. Launch Jupyter and run the notebooks **in order**:
+ 
+    ```bash
+    jupyter lab
+    ```
+ 
+-   Then open `Preprocessing/Cleaning.ipynb` and run all cells. It will re-download OSM/Earth Engine data and regenerate the `.gpkg`, `.geojson`, and `.png` files in `Preprocessing/`. Some cells (the Earth Engine export tasks) poll a remote job and can take several minutes.
++   Then run, top to bottom:
+ 
+-## 6. Train the Random Forest
++   - `notebooks/01_preprocessing.ipynb` — clips OSM waterways to each region's AOI, builds the 60m riparian buffer, and pulls the Sentinel-2 composite sampled against ESA WorldCover ground truth. Re-downloads OSM/Earth Engine data, so some cells (the Earth Engine export tasks) poll a remote job and can take several minutes.
++   - `notebooks/02_modelling.ipynb` — trains the shared Random Forest across all three regions' feature tables and detects candidate structures via Google Open Buildings.
++   - `notebooks/03_fusion_and_report.ipynb` — computes true distance to the nearest river per building, applies the confidence/probability filters, and writes the final artifacts (including `rf_baseline.joblib` and `pipeline_summary.json`) into `data/processed/`.
+ 
+-The dashboard's model layers read three build artifacts that are gitignored, so you need to produce them once locally:
+-
+-```bash
+-pip install -r requirements-notebook.txt   # adds scikit-learn, rasterio, rasterstats, joblib
+-python train_rf.py
+-```
+-
+-The script reads the four committed inputs at the repo root (`kasarani_sentinel_tile.tif`, `kasarani_buildings_export.geojson`, `kasarani_river.gpkg`, `kasarani_aoi.gpkg`), computes per-building zonal statistics over the Sentinel-2 bands, labels each building by its real centroid distance to the river against the 60m legal buffer, trains the classifier, and writes:
+-
+-```
+-models/riparian_rf_model.joblib                      the fitted RandomForestClassifier
+-models/rf_metadata.json                              params, metrics, confusion matrix, importances
+-data/processed/kasarani_building_features_labeled.csv the training table
+-data/processed/kasarani_rf_predictions.csv           per-building predictions, tagged train/test
+-```
+-
+-The zonal-statistics pass over 57k footprints is the slow part — expect a few minutes. Restart Streamlit (or just reload the page) afterwards and the Random Forest layers appear in the sidebar.
+-
+-`kasarani_rf_pipeline.ipynb` is the same pipeline in notebook form, with the confusion-matrix and feature-importance plots rendered inline; run whichever you prefer, but only `train_rf.py` writes the JSON and prediction files the dashboard needs.
++Restart Streamlit (or just reload the page) afterwards to see the regenerated data.
+ 
+ ## Project structure
+ 
+ ```
+-app.py                       Streamlit dashboard (entry point — "streamlit run app.py")
+-train_rf.py                  Feature extraction + auto-labeling + Random Forest training
+-kasarani_rf_pipeline.ipynb   The same pipeline as a notebook, with inline plots
+-build_building_features.py   Standalone zonal-statistics step
+-label_buildings_by_river_distance.py   Standalone distance-labeling step
+-requirements.txt             Dependencies for the dashboard
+-requirements-notebook.txt    Extra dependencies for the data + modeling pipeline
+-.streamlit/config.toml       Dashboard theme (dark, matches the design mockups)
+-kasarani_sentinel_tile.tif   Sentinel-2 B4/B3/B2 composite (model input)
+-kasarani_buildings_export.geojson  Building footprints (model input)
+-kasarani_river.gpkg / kasarani_aoi.gpkg   River centerline and study area (model input)
+-models/                      Trained model + metrics (gitignored, produced by train_rf.py)
+-data/processed/              Feature tables + predictions (gitignored, produced by train_rf.py)
+-Preprocessing/
+-  Cleaning.ipynb             Data acquisition + cleaning pipeline (OSM + Earth Engine)
+-  kasarani_aoi.gpkg          Study area boundary
+-  kasarani_river.gpkg        Nairobi River centerline
+-  kasarani_encroachment_results.gpkg   Classified building footprints + buffer polygon
+-  kasarani_buildings_export.geojson    Raw building footprint export
+-  kasarani_*.png / .tif      Static preview images and the (currently mismatched) raster tile
+-design/                      UI mockups used to design the dashboard
++app.py                        Streamlit dashboard (entry point — "streamlit run app.py")
++requirements.txt              Dependencies for the dashboard
++requirements-notebook.txt     Extra dependencies for the data + modelling notebooks
++.streamlit/config.toml        Dashboard theme (dark, matches the design mockups)
++notebooks/
++  01_preprocessing.ipynb      Data acquisition + cleaning (OSM + Earth Engine)
++  02_modelling.ipynb          Random Forest training on Open Buildings + Sentinel-2 features
++  03_fusion_and_report.ipynb  Distance filtering + final artifact export
++data/
++  processed/                  Feature tables, predictions, the trained model, and per-region
++                               summary stats — committed, so the dashboard runs on a fresh clone
++  vectors/                    Source OSM waterways shapefile
++design/                       UI mockups used to design the dashboard
+ ```
+ 
+ ## Troubleshooting
+@@ -181,13 +155,7 @@ Another Streamlit app (or a previous run) is still using that port. Either stop
+ This usually means pip is falling back to building from source because no prebuilt wheel exists for your exact Python version/OS/architecture combination. Try a slightly older Python version (3.11 or 3.12), or install via `conda`/`mamba` instead of `pip`, which bundles the underlying GDAL/GEOS/PROJ libraries for you.
+ 
+ **Notebook: `ee.Initialize` fails with a permissions or project error**
+-The notebook is hardcoded to a Google Cloud project (`causal-bus-404912`) that belongs to the original author. Replace it with your own project ID (create one for free at [console.cloud.google.com](https://console.cloud.google.com), enable the Earth Engine API on it) and re-run `earthengine authenticate`.
+-
+-**Sidebar shows "Random Forest — artifacts missing", or the Model performance tab is empty**
+-The trained model, its metrics JSON, and the predictions CSV are gitignored build outputs. Run `python train_rf.py` (section 6) and reload the page. The Method & data tab lists exactly which artifacts are present and which are missing.
+-
+-**`train_rf.py` fails with `No module named rasterstats` (or `sklearn`)**
+-Those live in `requirements-notebook.txt`, not the dashboard's `requirements.txt`. Run `pip install -r requirements-notebook.txt` with the environment active.
++The notebook is hardcoded to a Google Cloud project belonging to the original author. Replace it with your own project ID (create one for free at [console.cloud.google.com](https://console.cloud.google.com), enable the Earth Engine API on it) and re-run `earthengine authenticate`.
+ 
+ **Dashboard loads but the map is blank**
+ Basemap tiles are fetched live over the network (CartoDB / Esri / OpenStreetMap) — check your internet connection, or switch basemap in the sidebar if one provider is being blocked by a firewall/proxy.
+diff --git a/app.py b/app.py
+index 8be6083..7615c3a 100644
+--- a/app.py
++++ b/app.py
+@@ -25,14 +25,21 @@ SUMMARY_PATH = DATA_DIR / "pipeline_summary.json"
+ METRIC_CRS = "EPSG:32737"
+ WGS84 = "EPSG:4326"
+ 
+-REGION = "Kasarani"
++REGIONS = ["Kasarani", "Gatharaini", "Motoine"]
+ # Matches 01_preprocessing.ipynb / 02_modelling.ipynb exactly — the fixed-radius
+-# circle Kasarani's AOI is built from. Gatharaini and Motoine only contributed
+-# training data to the shared model; they were never intended as end-user areas.
+-REGION_CENTERS = {"Kasarani": (36.8969, -1.2296)}
++# circle each region's AOI is built from. Kasarani is the only one calibrated
++# against an independent field count (Pamoja Trust, ~700 structures) — Gatharaini
++# and Motoine reuse that same flagging distance untested. Flagged in the sidebar
++# and on the map with a "not field-validated" badge whenever either is selected.
++REGION_CENTERS = {
++    "Kasarani": (36.8969, -1.2296),
++    "Gatharaini": (36.95952127354356, -1.2252700532171976),
++    "Motoine": (36.74237847877641, -1.3113205815273903),
++}
+ CASE_STUDY_RADIUS_KM = 3
+ 
+-# Named localities within the Kasarani AOI, for map navigation. Best-effort
++# Named localities within the Kasarani AOI, for map navigation — no verified
++# locality coordinates exist for Gatharaini or Motoine yet. Best-effort
+ # approximations — worth spot-checking against OSM before treating as exact.
+ KASARANI_AREAS = {
+     "Kasarani town centre": (-1.2295, 36.8908),
+@@ -88,6 +95,10 @@ def feature_table_csv(region: str) -> Path:
+     return DATA_DIR / f"{region.lower()}_feature_table.csv"
+ 
+ 
++def encroaching_csv(region: str) -> Path:
++    return DATA_DIR / f"{region.lower()}_encroaching_buildings.csv"
++
++
+ # ---------------------------------------------------------------- data loading
+ 
+ 
+@@ -153,6 +164,13 @@ def region_aoi_wgs84(region: str) -> gpd.GeoDataFrame:
+     return gpd.GeoDataFrame(geometry=circle_metric, crs=METRIC_CRS).to_crs(WGS84)
+ 
+ 
++def leaflet_bounds(gdf: gpd.GeoDataFrame) -> list:
++    """[[south, west], [north, east]] — the format Leaflet's fitBounds /
++    flyToBounds expect, from any WGS84 GeoDataFrame's total_bounds."""
++    minx, miny, maxx, maxy = gdf.total_bounds
++    return [[miny, minx], [maxy, maxx]]
++
++
+ @st.cache_data(show_spinner=False)
+ def build_region_table(region: str) -> pd.DataFrame | None:
+     """Buildings with true distance-to-river added — mirrors
+@@ -343,90 +361,125 @@ summary = load_pipeline_summary()
+ model = load_model()
+ model_ready = model is not None
+ 
+-with st.sidebar:
+-    st.markdown(
+-        """
+-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+-          <svg width="28" height="28" viewBox="0 0 30 30" fill="none">
+-            <circle cx="15" cy="15" r="13" stroke="#4dd0c4" stroke-width="1.4" opacity="0.35"/>
+-            <circle cx="15" cy="15" r="9" stroke="#4dd0c4" stroke-width="1.4" opacity="0.6"/>
+-            <path d="M9 17 L15 11 L21 17 Z" fill="#f2b544"/>
+-            <rect x="12" y="17" width="6" height="5" fill="#f2b544"/>
+-          </svg>
+-          <div>
+-            <div style="font-weight:600;font-size:14px;color:#eef2f3;line-height:1.2;">RIPARIAN DETECTOR</div>
+-            <div class="mono" style="font-size:10px;color:#5c6b73;">NAIROBI RIVER BASIN</div>
+-          </div>
+-        </div>
+-        """,
+-        unsafe_allow_html=True,
+-    )
+-
+-    st.markdown('<div class="rd-eyebrow">Study Area</div>', unsafe_allow_html=True)
+-    st.markdown('<span class="rd-badge rd-badge-ok">Calibrated vs. Pamoja Trust field count (~700 structures)</span>',
+-                unsafe_allow_html=True)
++region_peek = st.session_state.get("region_select", REGIONS[0])
+ 
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Jump to Area</div>', unsafe_allow_html=True)
+-    if "pending_jump" in st.session_state:
+-        st.session_state["map_center"] = st.session_state.pop("pending_jump")
++st.markdown(
++    f"""
++    <div class="rd-header">
++      <div style="display:flex;align-items:center;gap:10px;">
++        <svg width="26" height="26" viewBox="0 0 30 30" fill="none">
++          <circle cx="15" cy="15" r="13" stroke="#4dd0c4" stroke-width="1.4" opacity="0.35"/>
++          <circle cx="15" cy="15" r="9" stroke="#4dd0c4" stroke-width="1.4" opacity="0.6"/>
++          <path d="M9 17 L15 11 L21 17 Z" fill="#f2b544"/>
++          <rect x="12" y="17" width="6" height="5" fill="#f2b544"/>
++        </svg>
++        <div>
++          <div class="rd-title">RIPARIAN ENCROACHMENT DETECTOR</div>
++          <div class="rd-subtitle">{region_peek.upper()} &middot; NAIROBI RIVER BASIN</div>
++        </div>
++      </div>
++      <div style="display:flex;align-items:center;gap:10px;">
++        <span style="width:7px;height:7px;border-radius:50%;background:#4dd0c4;display:inline-block;box-shadow:0 0 6px #4dd0c4;"></span>
++        <span class="mono" style="font-size:11px;color:#8a9aa3;text-transform:uppercase;">Live</span>
++      </div>
++    </div>
++    """,
++    unsafe_allow_html=True,
++)
+ 
+-    area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
+-                         label_visibility="collapsed")
++tb_region, tb_area, tb_filters, tb_basemap, tb_model, tb_spacer, tb_export1, tb_export2 = st.columns(
++    [1.6, 1.1, 1.1, 1.3, 1.0, 2.6, 1.15, 1.15], gap="small"
++)
+ 
+-    if area_mode == "Named locality":
+-        area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
+-        st.session_state["map_center"] = KASARANI_AREAS[area_choice]
+-        st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
++with tb_region:
++    with st.popover(f"Region: {region_peek}", width="stretch"):
++        region = st.selectbox("Region", REGIONS, key="region_select", label_visibility="collapsed")
++    if region == "Kasarani":
++        st.markdown('<span class="rd-badge rd-badge-ok" style="font-size:9.5px;padding:3px 8px;">'
++                    'Calibrated</span>', unsafe_allow_html=True)
+     else:
+-        query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
+-                              label_visibility="collapsed")
+-        if query:
+-            result = geocode_place_osm(query, REGION)
+-            if result is None:
+-                st.warning("No match found — try a more specific name.")
+-            else:
+-                lat, lon, display_name = result
+-                st.session_state["pending_jump"] = (lat, lon)
+-                st.caption(f"Found: {display_name}")
+-        st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
+-
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Screening Filters</div>', unsafe_allow_html=True)
+-    confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
+-                                     DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
+-    material_threshold = st.slider("RF built-up probability ≥", 0.0, 0.5,
+-                                   DEFAULT_MATERIAL_OVERLAP_THRESHOLD, 0.01)
+-
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Flagging Distance</div>', unsafe_allow_html=True)
+-    calibrated_distance_default = int(summary["calibrated_distance_m"]) if summary else 16
+-    flag_distance_m = st.slider("Flag within (m) of river", 5, 60, calibrated_distance_default, 1)
+-    st.caption(
+-        f"Calibrated at {calibrated_distance_default}m against Kasarani's Pamoja Trust field "
+-        "survey (~700 structures). The same cutoff is applied to Gatharaini and Motoine "
+-        "untested — there is no independent count for either yet."
+-    )
++        st.markdown('<span class="rd-badge rd-badge-warn" style="font-size:9.5px;padding:3px 8px;">'
++                    'Not field-validated</span>', unsafe_allow_html=True)
+ 
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Basemap</div>', unsafe_allow_html=True)
+-    basemap_label = st.selectbox("Basemap", list(BASEMAPS.keys()), label_visibility="collapsed")
++with tb_area:
++    with st.popover("Area", width="stretch"):
++        if "pending_jump" in st.session_state:
++            st.session_state["map_center"] = st.session_state.pop("pending_jump")
+ 
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Model</div>', unsafe_allow_html=True)
+-    if model_ready:
+-        st.markdown(
+-            f"""
+-            <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.6;">
+-            RandomForestClassifier &middot; {model.n_estimators} trees<br>
+-            Trained once on all three regions combined<br>
+-            Features: {", ".join(FEATURE_COLS)}
+-            </div>
+-            """,
+-            unsafe_allow_html=True,
++        if region == "Kasarani":
++            area_mode = st.radio("Area input", ["Named locality", "Search (OpenStreetMap)"],
++                                 label_visibility="collapsed")
++        else:
++            area_mode = "Search (OpenStreetMap)"
++            st.session_state["map_center"] = (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
++            st.caption("No named localities catalogued for this region yet — search below, "
++                       "or use the map's own pan/zoom.")
++
++        if area_mode == "Named locality":
++            area_choice = st.selectbox("Locality", list(KASARANI_AREAS.keys()))
++            st.session_state["map_center"] = KASARANI_AREAS[area_choice]
++            st.caption(f"{KASARANI_AREAS[area_choice][0]:.5f}, {KASARANI_AREAS[area_choice][1]:.5f}")
++        else:
++            query = st.text_input("Search (OpenStreetMap)", placeholder="e.g. Mwiki, Nairobi",
++                                  label_visibility="collapsed")
++            if query:
++                result = geocode_place_osm(query, region)
++                if result is None:
++                    st.warning("No match found — try a more specific name.")
++                else:
++                    lat, lon, display_name = result
++                    st.session_state["pending_jump"] = (lat, lon)
++                    st.caption(f"Found: {display_name}")
++            st.caption("Free via OpenStreetMap's Nominatim service — no API key required.")
++
++with tb_filters:
++    with st.popover("Filters", width="stretch"):
++        st.markdown('<div class="rd-eyebrow">Screening Filters</div>', unsafe_allow_html=True)
++        confidence_threshold = st.slider("Open Buildings confidence ≥", 0.5, 1.0,
++                                         DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
++        material_threshold = st.slider("RF built-up probability ≥", 0.0, 0.5,
++                                       DEFAULT_MATERIAL_OVERLAP_THRESHOLD, 0.01)
++
++        st.markdown('<div class="rd-eyebrow" style="margin-top:14px;">Flagging Distance</div>',
++                    unsafe_allow_html=True)
++        calibrated_distance_default = int(summary["calibrated_distance_m"]) if summary else 16
++        flag_distance_m = st.slider("Flag within (m) of river", 5, 60, calibrated_distance_default, 1)
++        st.caption(
++            f"Calibrated at {calibrated_distance_default}m against Kasarani's Pamoja Trust field "
++            "survey (~700 structures). The same cutoff is applied to Gatharaini and Motoine "
++            "untested — there is no independent count for either yet."
+         )
+-    else:
+-        st.caption("Model not available.")
++
++with tb_basemap:
++    with st.popover("Basemap", width="stretch"):
++        basemap_label = st.selectbox("Basemap", list(BASEMAPS.keys()), label_visibility="collapsed")
++
++with tb_model:
++    with st.popover("Model", width="stretch"):
++        if model_ready:
++            st.markdown(
++                f"""
++                <div class="mono" style="font-size:10.5px;color:var(--text-tertiary);line-height:1.6;">
++                RandomForestClassifier &middot; {model.n_estimators} trees<br>
++                Trained once on all three regions combined<br>
++                Features: {", ".join(FEATURE_COLS)}
++                </div>
++                """,
++                unsafe_allow_html=True,
++            )
++        else:
++            st.caption("Model not available.")
+ 
+ # --------------------------------------------------------------------- compute
+ 
+-region = REGION  # single fixed study area — kept as a local name so the
+-                  # rest of this file (map, tabs) needs no further changes
++# Tracks the previously shown region so the map can animate away from where
++# the user was, rather than jump-cutting straight to the newly picked region.
++if "shown_region" not in st.session_state:
++    st.session_state["shown_region"] = region
++region_changed = st.session_state["shown_region"] != region
++prev_region = st.session_state["shown_region"]
++st.session_state["shown_region"] = region
++
+ region_table = build_region_table(region)
+ data_ready = region_table is not None
+ 
+@@ -437,22 +490,6 @@ if data_ready:
+         & (region_table["rf_builtup_prob"] >= material_threshold)
+     ]
+ 
+-st.markdown(
+-    f"""
+-    <div class="rd-header">
+-      <div>
+-        <div class="rd-title">RIPARIAN ENCROACHMENT DETECTOR</div>
+-        <div class="rd-subtitle">{region.upper()} &middot; NAIROBI RIVER BASIN</div>
+-      </div>
+-      <div style="display:flex;align-items:center;gap:10px;">
+-        <span style="width:7px;height:7px;border-radius:50%;background:#4dd0c4;display:inline-block;box-shadow:0 0 6px #4dd0c4;"></span>
+-        <span class="mono" style="font-size:11px;color:#8a9aa3;text-transform:uppercase;">Live</span>
+-      </div>
+-    </div>
+-    """,
+-    unsafe_allow_html=True,
+-)
+-
+ if not data_ready:
+     st.markdown(
+         f"""
+@@ -466,21 +503,21 @@ if not data_ready:
+     )
+     st.stop()
+ 
+-with st.sidebar:
+-    st.markdown('<div class="rd-eyebrow" style="margin-top:18px;">Results</div>', unsafe_allow_html=True)
+-
++metric_col1, metric_col2, metric_col3, metric_col4 = st.columns([1, 1, 1, 1.4], gap="small")
++with metric_col1:
+     with card():
+-        st.markdown('<div class="rd-metric-label">Encroaching Structures</div>', unsafe_allow_html=True)
+-        st.markdown(f'<div class="rd-metric-big">{len(encroaching):,}</div>', unsafe_allow_html=True)
+-        st.markdown(
+-            f'<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">'
+-            f'of {len(region_table):,} candidate structures in {region}</div>',
+-            unsafe_allow_html=True,
+-        )
+-
+-    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+-
++        st.markdown('<div class="rd-metric-label">Encroaching</div>', unsafe_allow_html=True)
++        st.markdown(f'<div class="rd-metric-mid">{len(encroaching):,}</div>', unsafe_allow_html=True)
++with metric_col2:
++    with card():
++        st.markdown('<div class="rd-metric-label">Screened</div>', unsafe_allow_html=True)
++        st.markdown(f'<div class="rd-metric-mid">{len(region_table):,}</div>', unsafe_allow_html=True)
++with metric_col3:
+     with card():
++        st.markdown('<div class="rd-metric-label">Flagging distance</div>', unsafe_allow_html=True)
++        st.markdown(f'<div class="rd-metric-mid">{flag_distance_m}m</div>', unsafe_allow_html=True)
++with metric_col4:
++    with st.popover("Screening funnel & last reported", width="stretch"):
+         st.markdown('<div class="rd-card-title">Screening Funnel</div>', unsafe_allow_html=True)
+         funnel = [
+             ("Detected (Open Buildings)", len(region_table)),
+@@ -492,10 +529,8 @@ with st.sidebar:
+                 f'<div class="rd-kv"><span>{label}</span><span>{value:,}</span></div>',
+                 unsafe_allow_html=True,
+             )
+-
+-    if summary and region in summary:
+-        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+-        with card():
++        if summary and region in summary:
++            st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+             st.markdown('<div class="rd-card-title">As Last Reported</div>', unsafe_allow_html=True)
+             st.markdown('<div class="rd-sub">From the last full run, at its original '
+                         'screening settings</div>', unsafe_allow_html=True)
+@@ -504,7 +539,27 @@ with st.sidebar:
+                 st.markdown(f'<div class="rd-kv"><span>{k}</span><span>{v}</span></div>',
+                            unsafe_allow_html=True)
+ 
+-map_tab, compare_tab = st.tabs(["Detection map", "Compare areas"])
++export_spacer, export_col1, export_col2 = st.columns([5, 1.3, 1.3], gap="small")
++with export_col1:
++    st.download_button(
++        "⬇ Encroaching CSV",
++        data=encroaching.to_csv(index=False).encode("utf-8"),
++        file_name=f"{region.lower()}_encroaching_{flag_distance_m}m.csv",
++        mime="text/csv",
++        width="stretch",
++    )
++with export_col2:
++    st.download_button(
++        "⬇ Full table CSV",
++        data=region_table.to_csv(index=False).encode("utf-8"),
++        file_name=f"{region.lower()}_screened_structures.csv",
++        mime="text/csv",
++        width="stretch",
++    )
++
++st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
++
++map_tab, compare_tab, method_tab = st.tabs(["Detection map", "Compare areas", "Method & data"])
+ 
+ # ------------------------------------------------------------- tab 1: the map
+ 
+@@ -520,14 +575,36 @@ with map_tab:
+             unsafe_allow_html=True,
+         )
+ 
+-        center_lat, center_lon = st.session_state.get(
+-            "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
+-        )
+-        fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
+-                          tiles=BASEMAPS[basemap_label], control_scale=True,
+-                          scrollWheelZoom=False)
+-
+         aoi = region_aoi_wgs84(region)
++        aoi_bounds = leaflet_bounds(aoi)
++
++        rivers_path = rivers_geojson(region)
++        rivers_display = None
++        if rivers_path.exists():
++            rivers_display = gpd.read_file(rivers_path)
++            if rivers_display.crs is None:
++                rivers_display = rivers_display.set_crs(METRIC_CRS)
++            rivers_display = rivers_display.to_crs(WGS84)
++        river_bounds = leaflet_bounds(rivers_display) if rivers_display is not None else aoi_bounds
++
++        if region_changed:
++            # Start the map where the user just was (the previous region's
++            # boundary), so switching regions reads as a pan/zoom away from
++            # it rather than a jump-cut straight to the new one.
++            prev_bounds = leaflet_bounds(region_aoi_wgs84(prev_region))
++            (prev_s, prev_w), (prev_n, prev_e) = prev_bounds
++            fmap = folium.Map(location=[(prev_s + prev_n) / 2, (prev_w + prev_e) / 2], zoom_start=13,
++                              tiles=BASEMAPS[basemap_label], control_scale=True,
++                              scrollWheelZoom=False)
++            fmap.fit_bounds(prev_bounds)
++        else:
++            center_lat, center_lon = st.session_state.get(
++                "map_center", (REGION_CENTERS[region][1], REGION_CENTERS[region][0])
++            )
++            fmap = folium.Map(location=[center_lat, center_lon], zoom_start=13,
++                              tiles=BASEMAPS[basemap_label], control_scale=True,
++                              scrollWheelZoom=False)
++
+         folium.GeoJson(
+             json.loads(aoi.to_json()),
+             style_function=lambda _f: {"fillOpacity": 0, "color": TEAL, "weight": 1.2,
+@@ -544,12 +621,7 @@ with map_tab:
+                 name="60m riparian buffer",
+             ).add_to(fmap)
+ 
+-        rivers_path = rivers_geojson(region)
+-        if rivers_path.exists():
+-            rivers_display = gpd.read_file(rivers_path)
+-            if rivers_display.crs is None:
+-                rivers_display = rivers_display.set_crs(METRIC_CRS)
+-            rivers_display = rivers_display.to_crs(WGS84)
++        if rivers_display is not None:
+             folium.GeoJson(
+                 json.loads(rivers_display.to_json()),
+                 style_function=lambda _f: {"color": TEAL, "weight": 2},
+@@ -578,6 +650,24 @@ with map_tab:
+                 options={"maxClusterRadius": 45, "showCoverageOnHover": False, "disableClusteringAtZoom": 17},
+             ).add_to(fmap)
+ 
++        if region_changed:
++            # Two-stage fly: first out/across to the newly selected region's
++            # boundary circle, then in to the tighter extent of its actual
++            # waterways — chained on Leaflet's own 'moveend' event rather than
++            # a guessed delay, so the second leg only starts once the first
++            # has genuinely finished.
++            map_var = fmap.get_name()
++            transition_script = f"""
++            setTimeout(function(){{
++                var m = {map_var};
++                m.flyToBounds({json.dumps(aoi_bounds)}, {{duration: 1.5, padding: [20, 20]}});
++                m.once('moveend', function(){{
++                    m.flyToBounds({json.dumps(river_bounds)}, {{duration: 1.1, padding: [30, 30], maxZoom: 16}});
++                }});
++            }}, 150);
++            """
++            fmap.get_root().script.add_child(folium.Element(transition_script))
++
+         folium.LayerControl(collapsed=True).add_to(fmap)
+         st_folium(fmap, height=640, use_container_width=True, returned_objects=[], key="main_map")
+ 
+@@ -700,62 +790,176 @@ with map_tab:
+ 
+ with compare_tab:
+     with card():
+-        st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
++        st.markdown('<div class="rd-card-title">Encroaching Structures by Region</div>', unsafe_allow_html=True)
+         st.markdown(
+-            f'<div class="rd-sub">All {len(encroaching):,} structures flagged as encroaching '
+-            f"(within {flag_distance_m}m of a river) — grouped by whichever named locality "
+-            "they're closest to</div>",
++            '<div class="rd-sub">Only Kasarani is calibrated against independent ground truth — '
++            "Gatharaini and Motoine reuse that same flagging distance untested</div>",
+             unsafe_allow_html=True,
+         )
+ 
+-        transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
+-        encroaching_metric_xy = np.array([
+-            transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
+-        ]) if len(encroaching) else np.empty((0, 2))
+-
+-        locality_names = list(KASARANI_AREAS.keys())
+-        locality_xy = np.array([
+-            transformer.transform(area_lon, area_lat) for area_lat, area_lon in KASARANI_AREAS.values()
+-        ])
+-
+-        if len(encroaching_metric_xy):
+-            # distance from every encroaching structure to every locality centre, then
+-            # assign each structure to whichever centre is closest — a fixed search
+-            # radius (the previous approach) either missed structures sitting between
+-            # localities or double-counted ones near two centres at once. Nearest-centre
+-            # assignment guarantees every structure is counted exactly once.
+-            diffs = encroaching_metric_xy[:, None, :] - locality_xy[None, :, :]
+-            dists = np.hypot(diffs[..., 0], diffs[..., 1])
+-            nearest_idx = dists.argmin(axis=1)
+-            counts = pd.Series(nearest_idx).value_counts()
+-        else:
+-            counts = pd.Series(dtype=int)
++        region_compare_rows = []
++        for r in REGIONS:
++            t = build_region_table(r)
++            if t is None:
++                continue
++            e = apply_filters(t, confidence_threshold, material_threshold, flag_distance_m)
++            region_compare_rows.append({
++                "region": r, "encroaching": len(e), "screened": len(t),
++                "calibrated": r == "Kasarani",
++            })
++
++        if region_compare_rows:
++            region_cdf = pd.DataFrame(region_compare_rows)
++            region_fig = go.Figure(go.Bar(
++                x=region_cdf["region"], y=region_cdf["encroaching"],
++                marker_color=[RED if c else AMBER for c in region_cdf["calibrated"]],
++                text=[f"{v:,}" for v in region_cdf["encroaching"]], textposition="outside",
++                hovertemplate="%{x}: %{y:,} encroaching<extra></extra>",
++            ))
++            region_fig.update_layout(**plotly_layout(height=280, showlegend=False,
++                                              yaxis=dict(gridcolor="#232b30", title=None),
++                                              xaxis=dict(title=None)))
++            st.plotly_chart(region_fig, width="stretch", config={"displayModeBar": False})
++            st.markdown(
++                f'<div class="rd-legend-row">'
++                f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{RED};"></span>'
++                f'Calibrated (Kasarani)</div>'
++                f'<div class="rd-legend-item"><span class="rd-swatch" style="background:{AMBER};"></span>'
++                f'Untested extrapolation</div>'
++                f'</div>',
++                unsafe_allow_html=True,
++            )
+ 
+-        compare_rows = [
+-            {"locality": name, "encroaching_count": int(counts.get(i, 0))}
+-            for i, name in enumerate(locality_names)
+-        ]
++    if region == "Kasarani":
++        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
++        with card():
++            st.markdown('<div class="rd-card-title">Encroaching Structures by Locality</div>', unsafe_allow_html=True)
++            st.markdown(
++                f'<div class="rd-sub">All {len(encroaching):,} structures flagged as encroaching '
++                f"(within {flag_distance_m}m of a river) — grouped by whichever named locality "
++                "they're closest to</div>",
++                unsafe_allow_html=True,
++            )
+ 
+-        cdf = pd.DataFrame(compare_rows).sort_values("encroaching_count", ascending=False)
+-        fig = go.Figure(go.Bar(
+-            x=cdf["locality"], y=cdf["encroaching_count"], marker_color=RED,
+-            text=[f"{v:,}" for v in cdf["encroaching_count"]], textposition="outside",
+-            hovertemplate="%{x}: %{y:,} encroaching structures (nearest)<extra></extra>",
+-        ))
+-        fig.update_layout(**plotly_layout(height=320, showlegend=False,
+-                                          yaxis=dict(gridcolor="#232b30", title=None),
+-                                          xaxis=dict(title=None)))
+-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
++            transformer = Transformer.from_crs(WGS84, METRIC_CRS, always_xy=True)
++            encroaching_metric_xy = np.array([
++                transformer.transform(lon, lat) for lon, lat in zip(encroaching["lon"], encroaching["lat"])
++            ]) if len(encroaching) else np.empty((0, 2))
++
++            locality_names = list(KASARANI_AREAS.keys())
++            locality_xy = np.array([
++                transformer.transform(area_lon, area_lat) for area_lat, area_lon in KASARANI_AREAS.values()
++            ])
++
++            if len(encroaching_metric_xy):
++                # distance from every encroaching structure to every locality centre, then
++                # assign each structure to whichever centre is closest — a fixed search
++                # radius (the previous approach) either missed structures sitting between
++                # localities or double-counted ones near two centres at once. Nearest-centre
++                # assignment guarantees every structure is counted exactly once.
++                diffs = encroaching_metric_xy[:, None, :] - locality_xy[None, :, :]
++                dists = np.hypot(diffs[..., 0], diffs[..., 1])
++                nearest_idx = dists.argmin(axis=1)
++                counts = pd.Series(nearest_idx).value_counts()
++            else:
++                counts = pd.Series(dtype=int)
++
++            compare_rows = [
++                {"locality": name, "encroaching_count": int(counts.get(i, 0))}
++                for i, name in enumerate(locality_names)
++            ]
++
++            cdf = pd.DataFrame(compare_rows).sort_values("encroaching_count", ascending=False)
++            fig = go.Figure(go.Bar(
++                x=cdf["locality"], y=cdf["encroaching_count"], marker_color=RED,
++                text=[f"{v:,}" for v in cdf["encroaching_count"]], textposition="outside",
++                hovertemplate="%{x}: %{y:,} encroaching structures (nearest)<extra></extra>",
++            ))
++            fig.update_layout(**plotly_layout(height=320, showlegend=False,
++                                              yaxis=dict(gridcolor="#232b30", title=None),
++                                              xaxis=dict(title=None)))
++            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
++            st.markdown(
++                '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">'
++                "Locality centres are best-effort approximate coordinates, not official "
++                "administrative boundaries — treat this as a directional triage view, not a "
++                "precise ward-by-ward count.</div>",
++                unsafe_allow_html=True,
++            )
++
++        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
++        with card():
++            st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
++            st.dataframe(cdf, hide_index=True, width="stretch")
++    else:
++        st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+         st.markdown(
+-            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">'
+-            "Locality centres are best-effort approximate coordinates, not official "
+-            "administrative boundaries — treat this as a directional triage view, not a "
+-            "precise ward-by-ward count.</div>",
++            '<div class="rd-note">Locality-level breakdown is only catalogued for Kasarani — '
++            f"switch the sidebar region back to Kasarani to see the by-locality view, or use "
++            f"the region totals above for {region}.</div>",
+             unsafe_allow_html=True,
+         )
+ 
+-    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+-    with card():
+-        st.markdown('<div class="rd-card-title">Locality Totals</div>', unsafe_allow_html=True)
+-        st.dataframe(cdf, hide_index=True, width="stretch")
++# ------------------------------------------------------- tab 3: method & data
++
++with method_tab:
++    left, right = st.columns([1.3, 1], gap="medium")
++
++    with left:
++        with card():
++            st.markdown('<div class="rd-card-title">Pipeline</div>', unsafe_allow_html=True)
++            st.markdown(
++                """
++                <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.75;margin-top:8px;">
++                <b style="color:var(--text-primary);">1 &middot; Preprocessing</b>
++                (<span class="mono">01_preprocessing.ipynb</span>) — clips OSM waterways to each
++                region's fixed-radius AOI, builds a 60m riparian buffer, and pulls a cloud-masked
++                Sentinel-2 composite (B2/B3/B4/B8/B11/B12 + NDVI/NDBI), sampled against ESA
++                WorldCover ground truth.<br><br>
++                <b style="color:var(--text-primary);">2 &middot; Modelling</b>
++                (<span class="mono">02_modelling.ipynb</span>) — trains one Random Forest across all
++                three regions' feature tables, detects candidate structures via Google Open
++                Buildings (chosen over a custom detector because the median footprint here is
++                ~8m across — smaller than Sentinel-2's 10m pixels), then scores each one with the
++                RF's built-up probability.<br><br>
++                <b style="color:var(--text-primary);">3 &middot; Fusion &amp; report</b>
++                (<span class="mono">03_fusion_and_report.ipynb</span>) — computes true distance to
++                the nearest river line per building, filters on confidence and RF probability, and
++                sweeps a flagging distance to match Kasarani's known field count before applying
++                that same distance elsewhere.
++                </div>
++                """,
++                unsafe_allow_html=True,
++            )
++
++        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
++        if summary and "note" in summary:
++            st.markdown(f'<div class="rd-note">{summary["note"]}</div>', unsafe_allow_html=True)
++
++    with right:
++        with card():
++            st.markdown('<div class="rd-card-title">Artifacts</div>', unsafe_allow_html=True)
++            rows = []
++            for r in REGIONS:
++                for path, what in [
++                    (buildings_csv(r), f"{r} — detected structures"),
++                    (encroaching_csv(r), f"{r} — encroaching structures"),
++                    (rivers_geojson(r), f"{r} — river lines"),
++                    (riparian_buffer_geojson(r), f"{r} — riparian buffer"),
++                ]:
++                    exists = path.exists()
++                    rows.append({
++                        "File": path.name, "Holds": what,
++                        "Size": f"{path.stat().st_size / 1e6:.1f} MB" if exists else "—",
++                        "Status": "present" if exists else "missing",
++                    })
++            rows.append({
++                "File": MODEL_PATH.name, "Holds": "Shared Random Forest (trained on Kasarani, "
++                                                    "Gatharaini and Motoine combined)",
++                "Size": f"{MODEL_PATH.stat().st_size / 1e6:.1f} MB" if MODEL_PATH.exists() else "—",
++                "Status": "present" if MODEL_PATH.exists() else "missing",
++            })
++
++            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=320)
++
+ 
+diff --git a/requirements.txt b/requirements.txt
+index 3758515..e2f7b32 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,5 +1,5 @@
+ # Dependencies to run the Streamlit dashboard (app.py) only.
+-# For the data/modelling pipeline notebooks, see requirements-pipeline.txt.
++# For the data/modelling pipeline notebooks, see requirements-notebook.txt.
+ streamlit==1.63.0
+ geopandas==1.1.4
+ folium==0.20.0
